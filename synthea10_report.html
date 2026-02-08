@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synthea OMOP CDM Report — synthea10</title>
+<style>
+    :root {
+        --bg: #f5f6fa;
+        --card-bg: #ffffff;
+        --text: #2c3e50;
+        --text-light: #7f8c8d;
+        --accent: #4a90d9;
+        --accent-light: #d6e4f0;
+        --border: #e1e8ed;
+        --success: #27ae60;
+        --warning: #f39c12;
+        --danger: #e74c3c;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+    }
+    .header {
+        background: linear-gradient(135deg, #2c3e50, #4a90d9);
+        color: white;
+        padding: 2rem;
+        text-align: center;
+    }
+    .header h1 { font-size: 1.8rem; margin-bottom: 0.3rem; }
+    .header p { opacity: 0.85; font-size: 0.95rem; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+
+    /* Tabs */
+    .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        background: var(--card-bg);
+        border-radius: 8px 8px 0 0;
+        padding: 0.5rem 0.5rem 0;
+        border-bottom: 2px solid var(--accent);
+        margin-top: 1rem;
+    }
+    .tab-btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--text-light);
+        border-radius: 6px 6px 0 0;
+        transition: all 0.2s;
+    }
+    .tab-btn:hover { background: var(--accent-light); color: var(--text); }
+    .tab-btn.active { background: var(--accent); color: white; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .tab-panel {
+        background: var(--card-bg);
+        border-radius: 0 0 8px 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .stat-card {
+        background: var(--bg);
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+        border: 1px solid var(--border);
+    }
+    .stat-card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+    .stat-card .label { font-size: 0.85rem; color: var(--text-light); margin-top: 0.25rem; }
+
+    /* Tables */
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+    }
+    .data-table th {
+        background: var(--bg);
+        padding: 0.6rem 0.8rem;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--border);
+        position: sticky;
+        top: 0;
+    }
+    .data-table td {
+        padding: 0.5rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .data-table tr:hover { background: var(--accent-light); }
+    .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Bar charts */
+    .bar-chart { margin: 1rem 0 1.5rem 0; }
+    .bar-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.3rem;
+    }
+    .bar-label {
+        width: 280px;
+        min-width: 280px;
+        font-size: 0.82rem;
+        text-align: right;
+        padding-right: 0.75rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .bar-track {
+        flex: 1;
+        height: 20px;
+        background: var(--bg);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    .bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), #6ab0f3);
+        border-radius: 3px;
+        transition: width 0.3s;
+    }
+    .bar-value {
+        width: 80px;
+        min-width: 80px;
+        font-size: 0.82rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        padding-left: 0.5rem;
+    }
+
+    /* Demographics bar items */
+    .demo-charts { margin: 0.5rem 0 1.5rem 0; }
+    .demo-bar-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    .demo-label {
+        width: 160px;
+        min-width: 160px;
+        font-size: 0.9rem;
+        text-align: right;
+        padding-right: 0.75rem;
+    }
+    .demo-bar-track {
+        flex: 1;
+        height: 26px;
+        background: var(--bg);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .demo-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+    .demo-value {
+        width: 140px;
+        min-width: 140px;
+        font-size: 0.85rem;
+        padding-left: 0.75rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* AI section */
+    .ai-section h3 {
+        color: var(--accent);
+        margin: 1.2rem 0 0.5rem 0;
+        font-size: 1rem;
+    }
+    .ai-section ul { padding-left: 1.5rem; }
+    .ai-section li {
+        margin-bottom: 0.4rem;
+        font-size: 0.9rem;
+        color: var(--text);
+    }
+
+    h2 { color: var(--text); margin-bottom: 1rem; font-size: 1.3rem; }
+    h3 { color: var(--text); margin: 1.5rem 0 0.75rem 0; font-size: 1.1rem; }
+
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+
+    .footer {
+        text-align: center;
+        padding: 1.5rem;
+        color: var(--text-light);
+        font-size: 0.8rem;
+    }
+
+    @media (max-width: 768px) {
+        .bar-label { width: 150px; min-width: 150px; font-size: 0.75rem; }
+        .tabs { gap: 0.1rem; }
+        .tab-btn { font-size: 0.8rem; padding: 0.4rem 0.6rem; }
+    }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>Synthea OMOP CDM Data Report</h1>
+    <p>Database: synthea10 &nbsp;|&nbsp; CDM v5.4 &nbsp;|&nbsp; Generated: 2026-02-08 13:02</p>
+</div>
+
+<div class="container">
+    <div class="tabs">
+        <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+        <button class="tab-btn" onclick="showTab('conditions')">Conditions</button>
+        <button class="tab-btn" onclick="showTab('drugs')">Drugs</button>
+        <button class="tab-btn" onclick="showTab('procedures')">Procedures</button>
+        <button class="tab-btn" onclick="showTab('measurements')">Measurements</button>
+        <button class="tab-btn" onclick="showTab('observations')">Observations</button>
+        <button class="tab-btn" onclick="showTab('demographics')">Demographics</button>
+        <button class="tab-btn" onclick="showTab('ai')">AI Test Cases</button>
+    </div>
+
+    <div class="tab-panel">
+        <!-- Overview -->
+        <div id="tab-overview" class="tab-content active">
+            <h2>Overview</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="value">11,463</div>
+                    <div class="label">Total Patients</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">1,373</div>
+                    <div class="label">Deaths</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">1915-03-14</div>
+                    <div class="label">Earliest Observation</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">2026-02-16</div>
+                    <div class="label">Latest Observation</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">15,150</div>
+                    <div class="label">Avg Observation (days)</div>
+                </div>
+            </div>
+
+            <h3>CDM Table Row Counts</h3>
+            <table class="data-table">
+                <thead><tr><th>Table</th><th>Row Count</th></tr></thead>
+                <tbody>
+            <tr>
+                <td><code>measurement</code></td>
+                <td class="num">14,880,118</td>
+            </tr>
+            <tr>
+                <td><code>observation</code></td>
+                <td class="num">8,025,240</td>
+            </tr>
+            <tr>
+                <td><code>cost</code></td>
+                <td class="num">4,868,976</td>
+            </tr>
+            <tr>
+                <td><code>procedure_occurrence</code></td>
+                <td class="num">3,084,877</td>
+            </tr>
+            <tr>
+                <td><code>visit_detail</code></td>
+                <td class="num">1,748,376</td>
+            </tr>
+            <tr>
+                <td><code>visit_occurrence</code></td>
+                <td class="num">1,748,376</td>
+            </tr>
+            <tr>
+                <td><code>drug_exposure</code></td>
+                <td class="num">1,663,443</td>
+            </tr>
+            <tr>
+                <td><code>condition_occurrence</code></td>
+                <td class="num">463,572</td>
+            </tr>
+            <tr>
+                <td><code>condition_era</code></td>
+                <td class="num">460,138</td>
+            </tr>
+            <tr>
+                <td><code>payer_plan_period</code></td>
+                <td class="num">422,054</td>
+            </tr>
+            <tr>
+                <td><code>drug_era</code></td>
+                <td class="num">400,372</td>
+            </tr>
+            <tr>
+                <td><code>device_exposure</code></td>
+                <td class="num">141,971</td>
+            </tr>
+            <tr>
+                <td><code>person</code></td>
+                <td class="num">11,463</td>
+            </tr>
+            <tr>
+                <td><code>observation_period</code></td>
+                <td class="num">11,463</td>
+            </tr>
+            <tr>
+                <td><code>provider</code></td>
+                <td class="num">2,563</td>
+            </tr>
+            <tr>
+                <td><code>care_site</code></td>
+                <td class="num">2,563</td>
+            </tr>
+            <tr>
+                <td><code>location</code></td>
+                <td class="num">1,494</td>
+            </tr>
+            <tr>
+                <td><code>death</code></td>
+                <td class="num">1,373</td>
+            </tr></tbody>
+            </table>
+
+            <hr class="section-divider">
+
+            <h3>Visit Type Breakdown</h3>
+            <table class="data-table">
+                <thead><tr><th>Visit Type</th><th>Count</th><th>%</th></tr></thead>
+                <tbody>
+            <tr>
+                <td>Outpatient Visit</td>
+                <td class="num">1,647,345</td>
+                <td class="num">94.2%</td>
+            </tr>
+            <tr>
+                <td>Emergency Room Visit</td>
+                <td class="num">86,570</td>
+                <td class="num">5.0%</td>
+            </tr>
+            <tr>
+                <td>Inpatient Visit</td>
+                <td class="num">14,461</td>
+                <td class="num">0.8%</td>
+            </tr></tbody>
+            </table>
+
+            <hr class="section-divider">
+
+            <h3>Unique Concepts per Domain</h3>
+            <table class="data-table">
+                <thead><tr><th>Domain</th><th>Unique Concepts</th></tr></thead>
+                <tbody>
+            <tr>
+                <td>Drug</td>
+                <td class="num">397</td>
+            </tr>
+            <tr>
+                <td>Measurement</td>
+                <td class="num">275</td>
+            </tr>
+            <tr>
+                <td>Procedure</td>
+                <td class="num">256</td>
+            </tr>
+            <tr>
+                <td>Condition</td>
+                <td class="num">247</td>
+            </tr>
+            <tr>
+                <td>Observation</td>
+                <td class="num">144</td>
+            </tr>
+            <tr>
+                <td>Device</td>
+                <td class="num">27</td>
+            </tr></tbody>
+            </table>
+        </div>
+
+        <!-- Conditions -->
+        <div id="tab-conditions" class="tab-content">
+            <h2>Top 30 Conditions</h2>
+            <div class="bar-chart">
+                <div class="bar-row">
+                    <div class="bar-label" title="Gingivitis">Gingivitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:100%"></div>
+                    </div>
+                    <div class="bar-value">95,182</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Viral sinusitis">Viral sinusitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:54%"></div>
+                    </div>
+                    <div class="bar-value">51,801</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Acute viral pharyngitis">Acute viral pharyngitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:32%"></div>
+                    </div>
+                    <div class="bar-value">30,780</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Gingival disease">Gingival disease</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:30%"></div>
+                    </div>
+                    <div class="bar-value">29,299</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Primary dental caries">Primary dental caries</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:27%"></div>
+                    </div>
+                    <div class="bar-value">25,786</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Acute bronchitis">Acute bronchitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:26%"></div>
+                    </div>
+                    <div class="bar-value">25,452</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Normal pregnancy">Normal pregnancy</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">24,646</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Otitis media">Otitis media</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:15%"></div>
+                    </div>
+                    <div class="bar-value">14,476</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Streptococcal sore throat">Streptococcal sore throat</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:9%"></div>
+                    </div>
+                    <div class="bar-value">9,128</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Fracture of bone">Fracture of bone</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">7,414</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Laceration - injury">Laceration - injury</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">7,093</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Infection of tooth">Infection of tooth</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">6,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Acute infective cystitis">Acute infective cystitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:6%"></div>
+                    </div>
+                    <div class="bar-value">6,177</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Sprain of ankle">Sprain of ankle</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:6%"></div>
+                    </div>
+                    <div class="bar-value">5,777</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Anemia">Anemia</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">5,452</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Prediabetes">Prediabetes</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">4,410</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Concussion injury of brain">Concussion injury of brain</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">4,130</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Overdose">Overdose</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">4,112</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Severe anxiety (panic)">Severe anxiety (panic)</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">3,672</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Concussion with no loss of consciousness">Concussion with no loss of consciousness</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">3,065</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Miscarriage in first trimester">Miscarriage in first trimester</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">2,964</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Acute bacterial sinusitis">Acute bacterial sinusitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">2,872</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Chronic pain">Chronic pain</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">2,863</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Sinusitis">Sinusitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,853</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Essential hypertension">Essential hypertension</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,626</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Misuses drugs">Misuses drugs</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,500</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Sprain of wrist">Sprain of wrist</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,447</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Chronic sinusitis">Chronic sinusitis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,415</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Injury of neck">Injury of neck</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,255</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Whiplash injury to neck">Whiplash injury to neck</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">2,255</div>
+                </div></div><table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Count</th><th>Patients</th></tr></thead><tbody><tr><td>1</td><td>Gingivitis</td><td class="num">95,182</td><td class="num">10,075</td></tr><tr><td>2</td><td>Viral sinusitis</td><td class="num">51,801</td><td class="num">10,305</td></tr><tr><td>3</td><td>Acute viral pharyngitis</td><td class="num">30,780</td><td class="num">9,540</td></tr><tr><td>4</td><td>Gingival disease</td><td class="num">29,299</td><td class="num">8,772</td></tr><tr><td>5</td><td>Primary dental caries</td><td class="num">25,786</td><td class="num">9,668</td></tr><tr><td>6</td><td>Acute bronchitis</td><td class="num">25,452</td><td class="num">9,154</td></tr><tr><td>7</td><td>Normal pregnancy</td><td class="num">24,646</td><td class="num">4,292</td></tr><tr><td>8</td><td>Otitis media</td><td class="num">14,476</td><td class="num">8,365</td></tr><tr><td>9</td><td>Streptococcal sore throat</td><td class="num">9,128</td><td class="num">6,024</td></tr><tr><td>10</td><td>Fracture of bone</td><td class="num">7,414</td><td class="num">5,145</td></tr><tr><td>11</td><td>Laceration - injury</td><td class="num">7,093</td><td class="num">4,939</td></tr><tr><td>12</td><td>Infection of tooth</td><td class="num">6,808</td><td class="num">4,508</td></tr><tr><td>13</td><td>Acute infective cystitis</td><td class="num">6,177</td><td class="num">5,646</td></tr><tr><td>14</td><td>Sprain of ankle</td><td class="num">5,777</td><td class="num">4,376</td></tr><tr><td>15</td><td>Anemia</td><td class="num">5,452</td><td class="num">5,452</td></tr><tr><td>16</td><td>Prediabetes</td><td class="num">4,410</td><td class="num">4,410</td></tr><tr><td>17</td><td>Concussion injury of brain</td><td class="num">4,130</td><td class="num">3,383</td></tr><tr><td>18</td><td>Overdose</td><td class="num">4,112</td><td class="num">626</td></tr><tr><td>19</td><td>Severe anxiety (panic)</td><td class="num">3,672</td><td class="num">2,694</td></tr><tr><td>20</td><td>Concussion with no loss of consciousness</td><td class="num">3,065</td><td class="num">2,641</td></tr><tr><td>21</td><td>Miscarriage in first trimester</td><td class="num">2,964</td><td class="num">1,901</td></tr><tr><td>22</td><td>Acute bacterial sinusitis</td><td class="num">2,872</td><td class="num">2,440</td></tr><tr><td>23</td><td>Chronic pain</td><td class="num">2,863</td><td class="num">2,863</td></tr><tr><td>24</td><td>Sinusitis</td><td class="num">2,853</td><td class="num">2,408</td></tr><tr><td>25</td><td>Essential hypertension</td><td class="num">2,626</td><td class="num">2,626</td></tr><tr><td>26</td><td>Misuses drugs</td><td class="num">2,500</td><td class="num">2,148</td></tr><tr><td>27</td><td>Sprain of wrist</td><td class="num">2,447</td><td class="num">2,130</td></tr><tr><td>28</td><td>Chronic sinusitis</td><td class="num">2,415</td><td class="num">2,391</td></tr><tr><td>29</td><td>Injury of neck</td><td class="num">2,255</td><td class="num">1,989</td></tr><tr><td>30</td><td>Whiplash injury to neck</td><td class="num">2,255</td><td class="num">1,989</td></tr></tbody></table>
+            <hr class="section-divider">
+            <h3>Top Condition Eras (by count, with avg duration)</h3><table class="data-table"><thead><tr><th>#</th><th>Condition</th><th>Era Count</th><th>Avg Days</th></tr></thead><tbody><tr><td>1</td><td>Gingivitis</td><td class="num">92,104</td><td class="num">16</td></tr><tr><td>2</td><td>Viral sinusitis</td><td class="num">51,801</td><td class="num">17</td></tr><tr><td>3</td><td>Acute viral pharyngitis</td><td class="num">30,780</td><td class="num">10</td></tr><tr><td>4</td><td>Gingival disease</td><td class="num">29,208</td><td class="num">0</td></tr><tr><td>5</td><td>Primary dental caries</td><td class="num">25,741</td><td class="num">0</td></tr><tr><td>6</td><td>Acute bronchitis</td><td class="num">25,452</td><td class="num">14</td></tr><tr><td>7</td><td>Normal pregnancy</td><td class="num">24,646</td><td class="num">148</td></tr><tr><td>8</td><td>Otitis media</td><td class="num">14,291</td><td class="num">134</td></tr><tr><td>9</td><td>Streptococcal sore throat</td><td class="num">9,128</td><td class="num">10</td></tr><tr><td>10</td><td>Fracture of bone</td><td class="num">7,414</td><td class="num">75</td></tr><tr><td>11</td><td>Laceration - injury</td><td class="num">7,093</td><td class="num">20</td></tr><tr><td>12</td><td>Infection of tooth</td><td class="num">6,804</td><td class="num">0</td></tr><tr><td>13</td><td>Acute infective cystitis</td><td class="num">6,177</td><td class="num">2</td></tr><tr><td>14</td><td>Sprain of ankle</td><td class="num">5,777</td><td class="num">27</td></tr><tr><td>15</td><td>Anemia</td><td class="num">5,452</td><td class="num">53</td></tr><tr><td>16</td><td>Prediabetes</td><td class="num">4,410</td><td class="num">1</td></tr><tr><td>17</td><td>Concussion injury of brain</td><td class="num">4,130</td><td class="num">59</td></tr><tr><td>18</td><td>Overdose</td><td class="num">4,092</td><td class="num">0</td></tr><tr><td>19</td><td>Severe anxiety (panic)</td><td class="num">3,664</td><td class="num">702</td></tr><tr><td>20</td><td>Concussion with no loss of consciousness</td><td class="num">3,065</td><td class="num">60</td></tr></tbody></table>
+        </div>
+
+        <!-- Drugs -->
+        <div id="tab-drugs" class="tab-content">
+            <h2>Top 30 Drugs</h2>
+            <div class="bar-chart">
+                <div class="bar-row">
+                    <div class="bar-label" title="Influenza, split virus, trivalent, injectable, preservative free">Influenza, split virus, trivalent, injectable, preservati...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:100%"></div>
+                    </div>
+                    <div class="bar-value">369,123</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="1 ML epoetin alfa 4000 UNT/ML Injection [Epogen]">1 ML epoetin alfa 4000 UNT/ML Injection [Epogen]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:38%"></div>
+                    </div>
+                    <div class="bar-value">141,861</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="sodium fluoride 0.0272 MG/MG Oral Gel">sodium fluoride 0.0272 MG/MG Oral Gel</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:28%"></div>
+                    </div>
+                    <div class="bar-value">104,629</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="lisinopril 10 MG Oral Tablet">lisinopril 10 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:26%"></div>
+                    </div>
+                    <div class="bar-value">97,450</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="insulin isophane, human 70 UNT/ML / insulin, regular, human 30 UNT/ML Injectable Suspension [Humulin]">insulin isophane, human 70 UNT/ML / insulin, regular, hum...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:23%"></div>
+                    </div>
+                    <div class="bar-value">86,018</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="hydrochlorothiazide 25 MG Oral Tablet">hydrochlorothiazide 25 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:22%"></div>
+                    </div>
+                    <div class="bar-value">83,161</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="amlodipine 2.5 MG Oral Tablet">amlodipine 2.5 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:19%"></div>
+                    </div>
+                    <div class="bar-value">73,242</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="poliovirus vaccine, inactivated">poliovirus vaccine, inactivated</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:10%"></div>
+                    </div>
+                    <div class="bar-value">39,702</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="24 HR metformin hydrochloride 500 MG Extended Release Oral Tablet">24 HR metformin hydrochloride 500 MG Extended Release Ora...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:8%"></div>
+                    </div>
+                    <div class="bar-value">29,746</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="acetaminophen 325 MG Oral Tablet">acetaminophen 325 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">27,293</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="tetanus and diphtheria toxoids, adsorbed, preservative free, for adult use (5 Lf of tetanus toxoid and 2 Lf of diphtheria toxoid)">tetanus and diphtheria toxoids, adsorbed, preservative fr...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:6%"></div>
+                    </div>
+                    <div class="bar-value">22,791</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="cisplatin 50 MG Injection">cisplatin 50 MG Injection</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">21,925</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Haemophilus influenzae type b vaccine, PRP-OMP conjugate">Haemophilus influenzae type b vaccine, PRP-OMP conjugate</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">20,790</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="diphtheria, tetanus toxoids and acellular pertussis vaccine">diphtheria, tetanus toxoids and acellular pertussis vaccine</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">20,691</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="simvastatin 10 MG Oral Tablet">simvastatin 10 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">18,805</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="albuterol 0.83 MG/ML Inhalation Solution">albuterol 0.83 MG/ML Inhalation Solution</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">18,017</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="paclitaxel 100 MG Injection">paclitaxel 100 MG Injection</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">17,435</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="tropicamide 5 MG/ML Ophthalmic Solution">tropicamide 5 MG/ML Ophthalmic Solution</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">13,384</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="acetaminophen 300 MG / hydrocodone bitartrate 5 MG Oral Tablet">acetaminophen 300 MG / hydrocodone bitartrate 5 MG Oral T...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">13,170</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="alendronic acid 10 MG Oral Tablet">alendronic acid 10 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">12,607</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="varicella virus vaccine">varicella virus vaccine</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">11,906</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="24 HR tacrolimus 1 MG Extended Release Oral Tablet [Envarsus]">24 HR tacrolimus 1 MG Extended Release Oral Tablet [Envar...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">11,575</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="amoxicillin 250 MG / clavulanate 125 MG Oral Tablet">amoxicillin 250 MG / clavulanate 125 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:3%"></div>
+                    </div>
+                    <div class="bar-value">11,213</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="pneumococcal conjugate vaccine, 13 valent">pneumococcal conjugate vaccine, 13 valent</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">10,613</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="acetaminophen 160 MG Chewable Tablet">acetaminophen 160 MG Chewable Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">10,248</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="120 ACTUAT fluticasone propionate 0.044 MG/ACTUAT Metered Dose Inhaler [Flovent]">120 ACTUAT fluticasone propionate 0.044 MG/ACTUAT Metered...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">10,141</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="meningococcal polysaccharide (groups A, C, Y and W-135) diphtheria toxoid conjugate vaccine (MCV4P)">meningococcal polysaccharide (groups A, C, Y and W-135) d...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">9,782</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="ibuprofen 400 MG Oral Tablet [Ibu]">ibuprofen 400 MG Oral Tablet [Ibu]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">9,691</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="hepatitis B vaccine, adult dosage">hepatitis B vaccine, adult dosage</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">9,647</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="aspirin 81 MG Oral Tablet">aspirin 81 MG Oral Tablet</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:2%"></div>
+                    </div>
+                    <div class="bar-value">9,261</div>
+                </div></div><table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Count</th><th>Patients</th></tr></thead><tbody><tr><td>1</td><td>Influenza, split virus, trivalent, injectable, preservative free</td><td class="num">369,123</td><td class="num">11,372</td></tr><tr><td>2</td><td>1 ML epoetin alfa 4000 UNT/ML Injection [Epogen]</td><td class="num">141,861</td><td class="num">415</td></tr><tr><td>3</td><td>sodium fluoride 0.0272 MG/MG Oral Gel</td><td class="num">104,629</td><td class="num">10,630</td></tr><tr><td>4</td><td>lisinopril 10 MG Oral Tablet</td><td class="num">97,450</td><td class="num">1,676</td></tr><tr><td>5</td><td>insulin isophane, human 70 UNT/ML / insulin, regular, human 30 UNT/ML Injectable Suspension [Humulin]</td><td class="num">86,018</td><td class="num">777</td></tr><tr><td>6</td><td>hydrochlorothiazide 25 MG Oral Tablet</td><td class="num">83,161</td><td class="num">1,523</td></tr><tr><td>7</td><td>amlodipine 2.5 MG Oral Tablet</td><td class="num">73,242</td><td class="num">1,388</td></tr><tr><td>8</td><td>poliovirus vaccine, inactivated</td><td class="num">39,702</td><td class="num">10,358</td></tr><tr><td>9</td><td>24 HR metformin hydrochloride 500 MG Extended Release Oral Tablet</td><td class="num">29,746</td><td class="num">467</td></tr><tr><td>10</td><td>acetaminophen 325 MG Oral Tablet</td><td class="num">27,293</td><td class="num">9,005</td></tr><tr><td>11</td><td>tetanus and diphtheria toxoids, adsorbed, preservative free, for adult use (5 Lf of tetanus toxoid and 2 Lf of diphtheria toxoid)</td><td class="num">22,791</td><td class="num">8,444</td></tr><tr><td>12</td><td>cisplatin 50 MG Injection</td><td class="num">21,925</td><td class="num">98</td></tr><tr><td>13</td><td>Haemophilus influenzae type b vaccine, PRP-OMP conjugate</td><td class="num">20,790</td><td class="num">7,146</td></tr><tr><td>14</td><td>diphtheria, tetanus toxoids and acellular pertussis vaccine</td><td class="num">20,691</td><td class="num">4,836</td></tr><tr><td>15</td><td>simvastatin 10 MG Oral Tablet</td><td class="num">18,805</td><td class="num">1,184</td></tr><tr><td>16</td><td>albuterol 0.83 MG/ML Inhalation Solution</td><td class="num">18,017</td><td class="num">322</td></tr><tr><td>17</td><td>paclitaxel 100 MG Injection</td><td class="num">17,435</td><td class="num">121</td></tr><tr><td>18</td><td>tropicamide 5 MG/ML Ophthalmic Solution</td><td class="num">13,384</td><td class="num">633</td></tr><tr><td>19</td><td>acetaminophen 300 MG / hydrocodone bitartrate 5 MG Oral Tablet</td><td class="num">13,170</td><td class="num">1,449</td></tr><tr><td>20</td><td>alendronic acid 10 MG Oral Tablet</td><td class="num">12,607</td><td class="num">390</td></tr><tr><td>21</td><td>varicella virus vaccine</td><td class="num">11,906</td><td class="num">6,449</td></tr><tr><td>22</td><td>24 HR tacrolimus 1 MG Extended Release Oral Tablet [Envarsus]</td><td class="num">11,575</td><td class="num">348</td></tr><tr><td>23</td><td>amoxicillin 250 MG / clavulanate 125 MG Oral Tablet</td><td class="num">11,213</td><td class="num">6,366</td></tr><tr><td>24</td><td>pneumococcal conjugate vaccine, 13 valent</td><td class="num">10,613</td><td class="num">4,030</td></tr><tr><td>25</td><td>acetaminophen 160 MG Chewable Tablet</td><td class="num">10,248</td><td class="num">6,582</td></tr><tr><td>26</td><td>120 ACTUAT fluticasone propionate 0.044 MG/ACTUAT Metered Dose Inhaler [Flovent]</td><td class="num">10,141</td><td class="num">196</td></tr><tr><td>27</td><td>meningococcal polysaccharide (groups A, C, Y and W-135) diphtheria toxoid conjugate vaccine (MCV4P)</td><td class="num">9,782</td><td class="num">4,403</td></tr><tr><td>28</td><td>ibuprofen 400 MG Oral Tablet [Ibu]</td><td class="num">9,691</td><td class="num">495</td></tr><tr><td>29</td><td>hepatitis B vaccine, adult dosage</td><td class="num">9,647</td><td class="num">6,525</td></tr><tr><td>30</td><td>aspirin 81 MG Oral Tablet</td><td class="num">9,261</td><td class="num">4,194</td></tr></tbody></table>
+            <hr class="section-divider">
+            <h3>Top Drug Eras (by count, with avg duration)</h3><table class="data-table"><thead><tr><th>#</th><th>Drug</th><th>Era Count</th><th>Avg Days</th></tr></thead><tbody><tr><td>1</td><td>sodium fluoride</td><td class="num">103,379</td><td class="num">0</td></tr><tr><td>2</td><td>acetaminophen</td><td class="num">51,705</td><td class="num">186</td></tr><tr><td>3</td><td>amoxicillin</td><td class="num">17,123</td><td class="num">19</td></tr><tr><td>4</td><td>inert ingredients</td><td class="num">13,061</td><td class="num">445</td></tr><tr><td>5</td><td>tropicamide</td><td class="num">12,992</td><td class="num">1</td></tr><tr><td>6</td><td>clavulanate</td><td class="num">11,741</td><td class="num">20</td></tr><tr><td>7</td><td>ibuprofen</td><td class="num">11,637</td><td class="num">186</td></tr><tr><td>8</td><td>ethinyl estradiol</td><td class="num">11,290</td><td class="num">446</td></tr><tr><td>9</td><td>norethindrone</td><td class="num">11,188</td><td class="num">434</td></tr><tr><td>10</td><td>penicillin V</td><td class="num">9,587</td><td class="num">10</td></tr><tr><td>11</td><td>aspirin</td><td class="num">9,312</td><td class="num">49</td></tr><tr><td>12</td><td>mestranol</td><td class="num">8,905</td><td class="num">475</td></tr><tr><td>13</td><td>oxycodone</td><td class="num">8,847</td><td class="num">522</td></tr><tr><td>14</td><td>hydrocodone</td><td class="num">6,373</td><td class="num">559</td></tr><tr><td>15</td><td>dextromethorphan</td><td class="num">6,269</td><td class="num">14</td></tr><tr><td>16</td><td>doxylamine</td><td class="num">6,269</td><td class="num">14</td></tr><tr><td>17</td><td>levonorgestrel</td><td class="num">5,829</td><td class="num">391</td></tr><tr><td>18</td><td>norgestimate</td><td class="num">5,312</td><td class="num">403</td></tr><tr><td>19</td><td>naproxen</td><td class="num">5,246</td><td class="num">295</td></tr><tr><td>20</td><td>norethynodrel</td><td class="num">4,417</td><td class="num">457</td></tr></tbody></table>
+        </div>
+
+        <!-- Procedures -->
+        <div id="tab-procedures" class="tab-content">
+            <h2>Top 30 Procedures</h2>
+            <div class="bar-chart">
+                <div class="bar-row">
+                    <div class="bar-label" title="Medication reconciliation">Medication reconciliation</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:100%"></div>
+                    </div>
+                    <div class="bar-value">284,085</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Assessment of health and social care needs">Assessment of health and social care needs</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:99%"></div>
+                    </div>
+                    <div class="bar-value">281,979</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Assessment of substance use">Assessment of substance use</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:75%"></div>
+                    </div>
+                    <div class="bar-value">215,671</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Examination of gingivae">Examination of gingivae</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:73%"></div>
+                    </div>
+                    <div class="bar-value">209,432</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Removal of subgingival plaque and calculus from all teeth using dental instrument">Removal of subgingival plaque and calculus from all teeth...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:73%"></div>
+                    </div>
+                    <div class="bar-value">209,432</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Removal of supragingival plaque and calculus from all teeth using dental instrument">Removal of supragingival plaque and calculus from all tee...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:73%"></div>
+                    </div>
+                    <div class="bar-value">209,432</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Assessment of anxiety">Assessment of anxiety</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:60%"></div>
+                    </div>
+                    <div class="bar-value">170,453</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Renal dialysis">Renal dialysis</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:59%"></div>
+                    </div>
+                    <div class="bar-value">168,337</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Auscultation of the fetal heart">Auscultation of the fetal heart</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:50%"></div>
+                    </div>
+                    <div class="bar-value">143,935</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Evaluation of uterine fundal height">Evaluation of uterine fundal height</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:50%"></div>
+                    </div>
+                    <div class="bar-value">143,935</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Dental plain X-ray bitewing">Dental plain X-ray bitewing</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:38%"></div>
+                    </div>
+                    <div class="bar-value">109,498</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Dental fluoride treatment">Dental fluoride treatment</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:36%"></div>
+                    </div>
+                    <div class="bar-value">104,629</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Subcutaneous immunotherapy">Subcutaneous immunotherapy</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:24%"></div>
+                    </div>
+                    <div class="bar-value">69,240</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Physical examination">Physical examination</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:14%"></div>
+                    </div>
+                    <div class="bar-value">41,304</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Rehabilitation therapy">Rehabilitation therapy</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:14%"></div>
+                    </div>
+                    <div class="bar-value">40,479</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Dental surgical procedure">Dental surgical procedure</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:13%"></div>
+                    </div>
+                    <div class="bar-value">38,301</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Dental application of desensitizing medicament">Dental application of desensitizing medicament</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:12%"></div>
+                    </div>
+                    <div class="bar-value">36,904</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Intramuscular injection">Intramuscular injection</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:12%"></div>
+                    </div>
+                    <div class="bar-value">35,965</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Anticipatory guidance">Anticipatory guidance</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:12%"></div>
+                    </div>
+                    <div class="bar-value">34,610</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Ultrasound scan for fetal viability">Ultrasound scan for fetal viability</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:8%"></div>
+                    </div>
+                    <div class="bar-value">24,646</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Combined chemotherapy and radiation therapy">Combined chemotherapy and radiation therapy</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:8%"></div>
+                    </div>
+                    <div class="bar-value">22,979</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Restoration of tooth with full cuspal coverage using dental filling material">Restoration of tooth with full cuspal coverage using dent...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">20,969</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Application of composite dental filling material to dentin of tooth following fracture of tooth">Application of composite dental filling material to denti...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:7%"></div>
+                    </div>
+                    <div class="bar-value">20,755</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Cytopathology procedure, preparation of smear, genital source">Cytopathology procedure, preparation of smear, genital so...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:6%"></div>
+                    </div>
+                    <div class="bar-value">18,468</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Sleep apnea assessment">Sleep apnea assessment</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:6%"></div>
+                    </div>
+                    <div class="bar-value">18,226</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Detection of chromosomal aneuploidy in prenatal amniotic fluid specimen using FISH screening technique">Detection of chromosomal aneuploidy in prenatal amniotic ...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">16,562</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Fetal anatomy study">Fetal anatomy study</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">15,870</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Hearing examination">Hearing examination</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:5%"></div>
+                    </div>
+                    <div class="bar-value">15,144</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Physical therapy procedure">Physical therapy procedure</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">13,871</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Camera fundoscopy">Camera fundoscopy</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:4%"></div>
+                    </div>
+                    <div class="bar-value">13,384</div>
+                </div></div><table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Count</th><th>Patients</th></tr></thead><tbody><tr><td>1</td><td>Medication reconciliation</td><td class="num">284,085</td><td class="num">11,443</td></tr><tr><td>2</td><td>Assessment of health and social care needs</td><td class="num">281,979</td><td class="num">9,190</td></tr><tr><td>3</td><td>Assessment of substance use</td><td class="num">215,671</td><td class="num">9,880</td></tr><tr><td>4</td><td>Examination of gingivae</td><td class="num">209,432</td><td class="num">10,911</td></tr><tr><td>5</td><td>Removal of subgingival plaque and calculus from all teeth using dental instrument</td><td class="num">209,432</td><td class="num">10,911</td></tr><tr><td>6</td><td>Removal of supragingival plaque and calculus from all teeth using dental instrument</td><td class="num">209,432</td><td class="num">10,911</td></tr><tr><td>7</td><td>Assessment of anxiety</td><td class="num">170,453</td><td class="num">9,811</td></tr><tr><td>8</td><td>Renal dialysis</td><td class="num">168,337</td><td class="num">479</td></tr><tr><td>9</td><td>Auscultation of the fetal heart</td><td class="num">143,935</td><td class="num">4,157</td></tr><tr><td>10</td><td>Evaluation of uterine fundal height</td><td class="num">143,935</td><td class="num">4,157</td></tr><tr><td>11</td><td>Dental plain X-ray bitewing</td><td class="num">109,498</td><td class="num">10,629</td></tr><tr><td>12</td><td>Dental fluoride treatment</td><td class="num">104,629</td><td class="num">10,630</td></tr><tr><td>13</td><td>Subcutaneous immunotherapy</td><td class="num">69,240</td><td class="num">1,194</td></tr><tr><td>14</td><td>Physical examination</td><td class="num">41,304</td><td class="num">4,461</td></tr><tr><td>15</td><td>Rehabilitation therapy</td><td class="num">40,479</td><td class="num">635</td></tr><tr><td>16</td><td>Dental surgical procedure</td><td class="num">38,301</td><td class="num">9,202</td></tr><tr><td>17</td><td>Dental application of desensitizing medicament</td><td class="num">36,904</td><td class="num">9,202</td></tr><tr><td>18</td><td>Intramuscular injection</td><td class="num">35,965</td><td class="num">2,063</td></tr><tr><td>19</td><td>Anticipatory guidance</td><td class="num">34,610</td><td class="num">9,784</td></tr><tr><td>20</td><td>Ultrasound scan for fetal viability</td><td class="num">24,646</td><td class="num">4,292</td></tr><tr><td>21</td><td>Combined chemotherapy and radiation therapy</td><td class="num">22,979</td><td class="num">276</td></tr><tr><td>22</td><td>Restoration of tooth with full cuspal coverage using dental filling material</td><td class="num">20,969</td><td class="num">8,034</td></tr><tr><td>23</td><td>Application of composite dental filling material to dentin of tooth following fracture of tooth</td><td class="num">20,755</td><td class="num">7,968</td></tr><tr><td>24</td><td>Cytopathology procedure, preparation of smear, genital source</td><td class="num">18,468</td><td class="num">4,164</td></tr><tr><td>25</td><td>Sleep apnea assessment</td><td class="num">18,226</td><td class="num">514</td></tr><tr><td>26</td><td>Detection of chromosomal aneuploidy in prenatal amniotic fluid specimen using FISH screening technique</td><td class="num">16,562</td><td class="num">4,149</td></tr><tr><td>27</td><td>Fetal anatomy study</td><td class="num">15,870</td><td class="num">4,124</td></tr><tr><td>28</td><td>Hearing examination</td><td class="num">15,144</td><td class="num">64</td></tr><tr><td>29</td><td>Physical therapy procedure</td><td class="num">13,871</td><td class="num">3,375</td></tr><tr><td>30</td><td>Camera fundoscopy</td><td class="num">13,384</td><td class="num">633</td></tr></tbody></table>
+        </div>
+
+        <!-- Measurements -->
+        <div id="tab-measurements" class="tab-content">
+            <h2>Top 30 Measurements</h2>
+            <div class="bar-chart">
+                <div class="bar-row">
+                    <div class="bar-label" title="Pain severity - 0-10 verbal numeric rating [Score] - Reported">Pain severity - 0-10 verbal numeric rating [Score] - Repo...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:100%"></div>
+                    </div>
+                    <div class="bar-value">784,509</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Systolic blood pressure">Systolic blood pressure</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:76%"></div>
+                    </div>
+                    <div class="bar-value">602,486</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Diastolic blood pressure">Diastolic blood pressure</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:76%"></div>
+                    </div>
+                    <div class="bar-value">602,486</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Body weight">Body weight</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:75%"></div>
+                    </div>
+                    <div class="bar-value">589,424</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Respiratory rate">Respiratory rate</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:74%"></div>
+                    </div>
+                    <div class="bar-value">585,016</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Heart rate">Heart rate</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:74%"></div>
+                    </div>
+                    <div class="bar-value">585,016</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Body height">Body height</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:74%"></div>
+                    </div>
+                    <div class="bar-value">583,149</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Depression screening">Depression screening</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:64%"></div>
+                    </div>
+                    <div class="bar-value">507,496</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Body mass index (BMI) [Ratio]">Body mass index (BMI) [Ratio]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:61%"></div>
+                    </div>
+                    <div class="bar-value">478,708</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Body mass index (BMI) [Percentile] Per age and sex">Body mass index (BMI) [Percentile] Per age and sex</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:27%"></div>
+                    </div>
+                    <div class="bar-value">212,357</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M">Glomerular filtration rate [Volume Rate/Area] in Serum, P...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:26%"></div>
+                    </div>
+                    <div class="bar-value">204,701</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Urea nitrogen [Mass/volume] in Blood">Urea nitrogen [Mass/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Calcium [Mass/volume] in Blood">Calcium [Mass/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Sodium [Moles/volume] in Blood">Sodium [Moles/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Chloride [Moles/volume] in Blood">Chloride [Moles/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Carbon dioxide, total [Moles/volume] in Blood">Carbon dioxide, total [Moles/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Potassium [Moles/volume] in Blood">Potassium [Moles/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Glucose [Mass/volume] in Blood">Glucose [Mass/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Creatinine [Mass/volume] in Blood">Creatinine [Mass/volume] in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:25%"></div>
+                    </div>
+                    <div class="bar-value">201,689</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Hemoglobin A1c/Hemoglobin.total in Blood">Hemoglobin A1c/Hemoglobin.total in Blood</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:23%"></div>
+                    </div>
+                    <div class="bar-value">182,280</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Weight difference [Mass difference] --pre dialysis - post dialysis">Weight difference [Mass difference] --pre dialysis - post...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:21%"></div>
+                    </div>
+                    <div class="bar-value">168,326</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Weight-for-length Per age and sex">Weight-for-length Per age and sex</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:19%"></div>
+                    </div>
+                    <div class="bar-value">151,048</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Head Occipital-frontal circumference Percentile">Head Occipital-frontal circumference Percentile</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:19%"></div>
+                    </div>
+                    <div class="bar-value">151,048</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Head Occipital-frontal circumference">Head Occipital-frontal circumference</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:19%"></div>
+                    </div>
+                    <div class="bar-value">151,048</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Ketones [Presence] in Urine by Test strip">Ketones [Presence] in Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Specific gravity of Urine by Test strip">Specific gravity of Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Hemoglobin [Presence] in Urine by Test strip">Hemoglobin [Presence] in Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Nitrite [Presence] in Urine by Test strip">Nitrite [Presence] in Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Leukocyte esterase [Presence] in Urine by Test strip">Leukocyte esterase [Presence] in Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="pH of Urine by Test strip">pH of Urine by Test strip</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:17%"></div>
+                    </div>
+                    <div class="bar-value">140,732</div>
+                </div></div><table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Count</th><th>Patients</th></tr></thead><tbody><tr><td>1</td><td>Pain severity - 0-10 verbal numeric rating [Score] - Reported</td><td class="num">784,509</td><td class="num">11,463</td></tr><tr><td>2</td><td>Systolic blood pressure</td><td class="num">602,486</td><td class="num">11,463</td></tr><tr><td>3</td><td>Diastolic blood pressure</td><td class="num">602,486</td><td class="num">11,463</td></tr><tr><td>4</td><td>Body weight</td><td class="num">589,424</td><td class="num">11,463</td></tr><tr><td>5</td><td>Respiratory rate</td><td class="num">585,016</td><td class="num">11,463</td></tr><tr><td>6</td><td>Heart rate</td><td class="num">585,016</td><td class="num">11,463</td></tr><tr><td>7</td><td>Body height</td><td class="num">583,149</td><td class="num">11,463</td></tr><tr><td>8</td><td>Depression screening</td><td class="num">507,496</td><td class="num">9,900</td></tr><tr><td>9</td><td>Body mass index (BMI) [Ratio]</td><td class="num">478,708</td><td class="num">11,146</td></tr><tr><td>10</td><td>Body mass index (BMI) [Percentile] Per age and sex</td><td class="num">212,357</td><td class="num">11,146</td></tr><tr><td>11</td><td>Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M</td><td class="num">204,701</td><td class="num">3,679</td></tr><tr><td>12</td><td>Urea nitrogen [Mass/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>13</td><td>Calcium [Mass/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>14</td><td>Sodium [Moles/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>15</td><td>Chloride [Moles/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>16</td><td>Carbon dioxide, total [Moles/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>17</td><td>Potassium [Moles/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>18</td><td>Glucose [Mass/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>19</td><td>Creatinine [Mass/volume] in Blood</td><td class="num">201,689</td><td class="num">5,227</td></tr><tr><td>20</td><td>Hemoglobin A1c/Hemoglobin.total in Blood</td><td class="num">182,280</td><td class="num">5,038</td></tr><tr><td>21</td><td>Weight difference [Mass difference] --pre dialysis - post dialysis</td><td class="num">168,326</td><td class="num">479</td></tr><tr><td>22</td><td>Weight-for-length Per age and sex</td><td class="num">151,048</td><td class="num">11,463</td></tr><tr><td>23</td><td>Head Occipital-frontal circumference Percentile</td><td class="num">151,048</td><td class="num">11,463</td></tr><tr><td>24</td><td>Head Occipital-frontal circumference</td><td class="num">151,048</td><td class="num">11,463</td></tr><tr><td>25</td><td>Ketones [Presence] in Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr><tr><td>26</td><td>Specific gravity of Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr><tr><td>27</td><td>Hemoglobin [Presence] in Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr><tr><td>28</td><td>Nitrite [Presence] in Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr><tr><td>29</td><td>Leukocyte esterase [Presence] in Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr><tr><td>30</td><td>pH of Urine by Test strip</td><td class="num">140,732</td><td class="num">6,210</td></tr></tbody></table>
+            <hr class="section-divider">
+            <h3>Clinical Value Ranges (top measurements with numeric values)</h3><table class="data-table"><thead><tr><th>#</th><th>Measurement</th><th>Avg</th><th>Min</th><th>Max</th><th>Unit</th><th>N</th></tr></thead><tbody><tr><td>1</td><td>Pain severity - 0-10 verbal numeric rating [Score] - Reported</td><td class="num">2.64</td><td class="num">0.0</td><td class="num">10.0</td><td></td><td class="num">784,509</td></tr><tr><td>2</td><td>Diastolic blood pressure</td><td class="num">79.45</td><td class="num">22.0</td><td class="num">135.0</td><td>millimeter mercury column</td><td class="num">602,486</td></tr><tr><td>3</td><td>Systolic blood pressure</td><td class="num">119.03</td><td class="num">39.0</td><td class="num">182.0</td><td>millimeter mercury column</td><td class="num">602,486</td></tr><tr><td>4</td><td>Body weight</td><td class="num">53.36</td><td class="num">1.8</td><td class="num">160.0</td><td>kilogram</td><td class="num">589,424</td></tr><tr><td>5</td><td>Heart rate</td><td class="num">80.24</td><td class="num">50.0</td><td class="num">200.0</td><td>per minute</td><td class="num">585,016</td></tr><tr><td>6</td><td>Respiratory rate</td><td class="num">14.08</td><td class="num">12.0</td><td class="num">40.0</td><td>per minute</td><td class="num">585,016</td></tr><tr><td>7</td><td>Body height</td><td class="num">139.06</td><td class="num">45.1</td><td class="num">195.1</td><td>centimeter</td><td class="num">583,149</td></tr><tr><td>8</td><td>Body mass index (BMI) [Ratio]</td><td class="num">24.29</td><td class="num">11.5</td><td class="num">53.3</td><td>kilogram per square meter</td><td class="num">478,708</td></tr><tr><td>9</td><td>Body mass index (BMI) [Percentile] Per age and sex</td><td class="num">61.24</td><td class="num">0.0</td><td class="num">100.0</td><td>percent</td><td class="num">212,357</td></tr><tr><td>10</td><td>Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M</td><td class="num">39.27</td><td class="num">3.4</td><td class="num">160.8</td><td>milliliter per minute</td><td class="num">204,701</td></tr><tr><td>11</td><td>Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M</td><td class="num">63.64</td><td class="num">1.0</td><td class="num">161.0</td><td></td><td class="num">204,701</td></tr><tr><td>12</td><td>Calcium [Mass/volume] in Blood</td><td class="num">9.35</td><td class="num">8.5</td><td class="num">10.2</td><td>milligram per deciliter</td><td class="num">201,689</td></tr><tr><td>13</td><td>Carbon dioxide, total [Moles/volume] in Blood</td><td class="num">24.5</td><td class="num">20.0</td><td class="num">29.0</td><td>millimole per liter</td><td class="num">201,689</td></tr><tr><td>14</td><td>Chloride [Moles/volume] in Blood</td><td class="num">106.0</td><td class="num">101.0</td><td class="num">111.0</td><td>millimole per liter</td><td class="num">201,689</td></tr><tr><td>15</td><td>Creatinine [Mass/volume] in Blood</td><td class="num">2.42</td><td class="num">0.2</td><td class="num">118.3</td><td>milligram per deciliter</td><td class="num">201,689</td></tr><tr><td>16</td><td>Glucose [Mass/volume] in Blood</td><td class="num">86.91</td><td class="num">64.0</td><td class="num">200.0</td><td>milligram per deciliter</td><td class="num">201,689</td></tr><tr><td>17</td><td>Potassium [Moles/volume] in Blood</td><td class="num">4.45</td><td class="num">3.7</td><td class="num">5.2</td><td>millimole per liter</td><td class="num">201,689</td></tr><tr><td>18</td><td>Sodium [Moles/volume] in Blood</td><td class="num">140.0</td><td class="num">136.0</td><td class="num">144.0</td><td>millimole per liter</td><td class="num">201,689</td></tr><tr><td>19</td><td>Urea nitrogen [Mass/volume] in Blood</td><td class="num">13.5</td><td class="num">7.0</td><td class="num">20.0</td><td>milligram per deciliter</td><td class="num">201,689</td></tr><tr><td>20</td><td>Hemoglobin A1c/Hemoglobin.total in Blood</td><td class="num">4.82</td><td class="num">2.1</td><td class="num">12.0</td><td>percent</td><td class="num">182,280</td></tr><tr><td>21</td><td>Weight difference [Mass difference] --pre dialysis - post dialysis</td><td class="num">3.0</td><td class="num">1.0</td><td class="num">5.0</td><td>kilogram</td><td class="num">168,326</td></tr><tr><td>22</td><td>Head Occipital-frontal circumference</td><td class="num">45.2</td><td class="num">31.3</td><td class="num">53.6</td><td>centimeter</td><td class="num">151,048</td></tr><tr><td>23</td><td>Head Occipital-frontal circumference Percentile</td><td class="num">52.48</td><td class="num">2.5</td><td class="num">100.0</td><td>percent</td><td class="num">151,048</td></tr><tr><td>24</td><td>Weight-for-length Per age and sex</td><td class="num">57.96</td><td class="num">0.0</td><td class="num">100.0</td><td>percent</td><td class="num">151,048</td></tr><tr><td>25</td><td>pH of Urine by Test strip</td><td class="num">6.24</td><td class="num">4.5</td><td class="num">8.0</td><td></td><td class="num">140,732</td></tr><tr><td>26</td><td>pH of Urine by Test strip</td><td class="num">6.0</td><td class="num">5.0</td><td class="num">7.0</td><td>pH</td><td class="num">140,732</td></tr><tr><td>27</td><td>Specific gravity of Urine by Test strip</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td><td></td><td class="num">140,732</td></tr></tbody></table>
+        </div>
+
+        <!-- Observations -->
+        <div id="tab-observations" class="tab-content">
+            <h2>Top 30 Observations</h2>
+            <div class="bar-chart">
+                <div class="bar-row">
+                    <div class="bar-label" title="Tobacco smoking status">Tobacco smoking status</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:100%"></div>
+                    </div>
+                    <div class="bar-value">579,052</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Housing status">Housing status</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:49%"></div>
+                    </div>
+                    <div class="bar-value">284,077</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Medication review due">Medication review due</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">283,395</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Are you a refugee">Are you a refugee</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Primary insurance">Primary insurance</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Has season or migrant farm work been your or your family's main source of income at any point in past 2 years [PRAPARE]">Has season or migrant farm work been your or your family'...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Employment status - current">Employment status - current</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Are you worried about losing your housing [PRAPARE]">Are you worried about losing your housing [PRAPARE]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="What was your best estimate of the total income of all family members from all sources, before taxes, in last year [PhenX]">What was your best estimate of the total income of all fa...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Race">Race</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Hispanic or Latino">Hispanic or Latino</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Preferred language">Preferred language</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Stress level">Stress level</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Within the last year, have you been afraid of your partner or ex-partner">Within the last year, have you been afraid of your partne...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="How often do you see or talk to people that you care about and feel close to [PRAPARE]">How often do you see or talk to people that you care abou...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Address">Address</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Has lack of transportation kept you from medical appointments, meetings, work, or from getting things needed for daily living">Has lack of transportation kept you from medical appointm...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Have you or any family members you live with been unable to get any of the following when it was really needed in past 1 year [PRAPARE]">Have you or any family members you live with been unable ...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Have you spent more than 2 nights in a row in a jail, prison, detention center, or juvenile correctional facility in past 1 year [PRAPARE]">Have you spent more than 2 nights in a row in a jail, pri...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="How many people are living or staying at this address [#]">How many people are living or staying at this address [#]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Highest level of education">Highest level of education</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Discharged from the U.S. Armed Forces">Discharged from the U.S. Armed Forces</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Do you feel physically and emotionally safe where you currently live [PRAPARE]">Do you feel physically and emotionally safe where you cur...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:48%"></div>
+                    </div>
+                    <div class="bar-value">281,808</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Patient Health Questionnaire 2 item (PHQ-2) total score [Reported]">Patient Health Questionnaire 2 item (PHQ-2) total score [...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:37%"></div>
+                    </div>
+                    <div class="bar-value">216,541</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ]">Generalized anxiety disorder 7 item (GAD-7) total score [...</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:29%"></div>
+                    </div>
+                    <div class="bar-value">170,447</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Total score [DAST-10]">Total score [DAST-10]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:14%"></div>
+                    </div>
+                    <div class="bar-value">86,197</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Total score [AUDIT-C]">Total score [AUDIT-C]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:14%"></div>
+                    </div>
+                    <div class="bar-value">85,723</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Total score [HARK]">Total score [HARK]</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:14%"></div>
+                    </div>
+                    <div class="bar-value">84,592</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Stress">Stress</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:12%"></div>
+                    </div>
+                    <div class="bar-value">71,147</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label" title="Full-time employment">Full-time employment</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:11%"></div>
+                    </div>
+                    <div class="bar-value">64,161</div>
+                </div></div><table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Count</th><th>Patients</th></tr></thead><tbody><tr><td>1</td><td>Tobacco smoking status</td><td class="num">579,052</td><td class="num">11,463</td></tr><tr><td>2</td><td>Housing status</td><td class="num">284,077</td><td class="num">9,210</td></tr><tr><td>3</td><td>Medication review due</td><td class="num">283,395</td><td class="num">11,463</td></tr><tr><td>4</td><td>Are you a refugee</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>5</td><td>Primary insurance</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>6</td><td>Has season or migrant farm work been your or your family's main source of income at any point in past 2 years [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>7</td><td>Employment status - current</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>8</td><td>Are you worried about losing your housing [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>9</td><td>What was your best estimate of the total income of all family members from all sources, before taxes, in last year [PhenX]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>10</td><td>Race</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>11</td><td>Hispanic or Latino</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>12</td><td>Preferred language</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>13</td><td>Stress level</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>14</td><td>Within the last year, have you been afraid of your partner or ex-partner</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>15</td><td>How often do you see or talk to people that you care about and feel close to [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>16</td><td>Address</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>17</td><td>Has lack of transportation kept you from medical appointments, meetings, work, or from getting things needed for daily living</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>18</td><td>Have you or any family members you live with been unable to get any of the following when it was really needed in past 1 year [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>19</td><td>Have you spent more than 2 nights in a row in a jail, prison, detention center, or juvenile correctional facility in past 1 year [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>20</td><td>How many people are living or staying at this address [#]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>21</td><td>Highest level of education</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>22</td><td>Discharged from the U.S. Armed Forces</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>23</td><td>Do you feel physically and emotionally safe where you currently live [PRAPARE]</td><td class="num">281,808</td><td class="num">9,186</td></tr><tr><td>24</td><td>Patient Health Questionnaire 2 item (PHQ-2) total score [Reported]</td><td class="num">216,541</td><td class="num">9,116</td></tr><tr><td>25</td><td>Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ]</td><td class="num">170,447</td><td class="num">9,808</td></tr><tr><td>26</td><td>Total score [DAST-10]</td><td class="num">86,197</td><td class="num">8,559</td></tr><tr><td>27</td><td>Total score [AUDIT-C]</td><td class="num">85,723</td><td class="num">8,530</td></tr><tr><td>28</td><td>Total score [HARK]</td><td class="num">84,592</td><td class="num">8,634</td></tr><tr><td>29</td><td>Stress</td><td class="num">71,147</td><td class="num">9,025</td></tr><tr><td>30</td><td>Full-time employment</td><td class="num">64,161</td><td class="num">8,986</td></tr></tbody></table>
+        </div>
+
+        <!-- Demographics -->
+        <div id="tab-demographics" class="tab-content">
+            <h2>Demographics</h2>
+            <h3>Gender Distribution</h3><div class="demo-charts"></div>
+            <hr class="section-divider">
+            <h3>Age Distribution</h3><div class="demo-charts">
+            <div class="demo-bar-item">
+                <span class="demo-label">0-9</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:74%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,166</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">10-19</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:78%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,223</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">20-29</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:92%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,442</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">30-39</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:91%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,429</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">40-49</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:84%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,315</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">50-59</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:100%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,558</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">60-69</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:92%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">1,445</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">70-79</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:57%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">889</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">80-89</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:27%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">428</span>
+            </div>
+            <div class="demo-bar-item">
+                <span class="demo-label">90+</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:36%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">568</span>
+            </div></div>
+            <hr class="section-divider">
+            <h3>Race Distribution</h3><div class="demo-charts">
+            <div class="demo-bar-item">
+                <span class="demo-label">No matching concept</span>
+                <div class="demo-bar-track">
+                    <div class="demo-bar-fill" style="width:100%; background:#4a90d9"></div>
+                </div>
+                <span class="demo-value">389</span>
+            </div></div>
+        </div>
+
+        <!-- AI Test Cases -->
+        <div id="tab-ai" class="tab-content">
+            <h2>AI Agent Test Case Ideas</h2>
+            <p style="color: var(--text-light); margin-bottom: 1rem;">
+                Example natural language questions the AI agent could translate into OMOP CDM SQL queries using this dataset.
+            </p>
+            
+    <div class="ai-section">
+        <h3>Condition Queries</h3>
+        <ul>
+            <li>"How many patients have been diagnosed with diabetes mellitus?"</li>
+            <li>"What is the prevalence of hypertension in patients over 60?"</li>
+            <li>"Find all patients with both diabetes and chronic kidney disease."</li>
+            <li>"What are the top 10 comorbidities for patients with COPD?"</li>
+            <li>"What is the average duration of a viral sinusitis condition era?"</li>
+        </ul>
+
+        <h3>Drug Queries</h3>
+        <ul>
+            <li>"What percentage of patients with hypertension are prescribed lisinopril?"</li>
+            <li>"What is the most common drug prescribed after a diabetes diagnosis?"</li>
+            <li>"Find patients on more than 5 concurrent medications."</li>
+            <li>"What is the average duration of an amoxicillin drug era?"</li>
+            <li>"List all drugs prescribed to patients with chronic kidney disease."</li>
+        </ul>
+
+        <h3>Procedure Queries</h3>
+        <ul>
+            <li>"How many patients have received a colonoscopy?"</li>
+            <li>"What procedures are most commonly associated with emergency visits?"</li>
+            <li>"Find the average number of procedures per patient per year."</li>
+            <li>"What is the most common procedure for patients aged 40-50?"</li>
+        </ul>
+
+        <h3>Measurement Queries</h3>
+        <ul>
+            <li>"What is the average BMI across all patients?"</li>
+            <li>"Find patients with HbA1c > 6.5% — how many also have a diabetes diagnosis?"</li>
+            <li>"What is the distribution of systolic blood pressure values?"</li>
+            <li>"Show the trend of glucose measurements over time for diabetic patients."</li>
+            <li>"Find patients with abnormally high creatinine levels."</li>
+        </ul>
+
+        <h3>Cross-Domain Queries</h3>
+        <ul>
+            <li>"For patients diagnosed with heart failure, what measurements were taken within 30 days?"</li>
+            <li>"What is the mortality rate for patients with 3+ chronic conditions?"</li>
+            <li>"Find patients who had an ER visit followed by an inpatient admission within 48 hours."</li>
+            <li>"What drugs are prescribed most often after a procedure for fracture treatment?"</li>
+            <li>"Build a cohort of patients with diabetes, at least one HbA1c measurement, and a drug exposure to metformin."</li>
+            <li>"What is the average cost per visit type (outpatient vs ER vs inpatient)?"</li>
+        </ul>
+
+        <h3>Temporal / Longitudinal Queries</h3>
+        <ul>
+            <li>"What is the average time from first hypertension diagnosis to first antihypertensive prescription?"</li>
+            <li>"How many patients transition from prediabetes measurements to a diabetes diagnosis?"</li>
+            <li>"What is the 30-day readmission rate for inpatient visits?"</li>
+        </ul>
+    </div>
+    
+        </div>
+    </div>
+</div>
+
+<div class="footer">
+    Synthea OMOP CDM Report &mdash; Generated by ETL-Synthea &mdash; 2026-02-08 13:02
+</div>
+
+<script>
+function showTab(name) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

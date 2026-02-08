@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nlomop — Natural Language OMOP</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>nlomop</h1>
+    <p class="subtitle">Ask questions about patient records in plain English</p>
+    <div class="tab-bar">
+      <button class="tab active" data-tab="chat-view">Chat</button>
+      <button class="tab" data-tab="sql-view">SQL IDE</button>
+    </div>
+    <div class="model-indicator">
+      <span class="provider-label">Azure OpenAI</span>
+      <span id="model-badge" class="model-badge" title="Current model">gpt-4o-mini</span>
+      <button id="settings-btn" class="settings-btn" title="Model settings">&#9881;</button>
+    </div>
+  </header>
+
+  <!-- Settings modal -->
+  <div id="settings-overlay" class="settings-overlay hidden">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Azure OpenAI Settings</h2>
+        <button id="settings-close" class="settings-close">&times;</button>
+      </div>
+      <div class="settings-body">
+        <label for="model-select">Deployment / Model</label>
+        <select id="model-select"></select>
+        <div class="custom-model-row">
+          <input type="text" id="custom-model" placeholder="Or type a custom deployment name...">
+          <button id="custom-model-btn">Use</button>
+        </div>
+        <p class="settings-hint">Deployments on this Azure OpenAI endpoint. Changes take effect on the next query.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-layout">
+    <!-- Sidebar: test cases -->
+    <aside id="sidebar">
+      <h2>Test Questions</h2>
+
+      <div class="sidebar-group">
+        <h3>Conditions</h3>
+        <button class="sample-q" data-q="How many patients have diabetes?">How many patients have diabetes?</button>
+        <button class="sample-q" data-q="What is the prevalence of hypertension in patients over 60?">Prevalence of hypertension over 60?</button>
+        <button class="sample-q" data-q="Find all patients with both diabetes and chronic kidney disease.">Diabetes + chronic kidney disease</button>
+        <button class="sample-q" data-q="What are the top 10 most common conditions?">Top 10 most common conditions</button>
+        <button class="sample-q" data-q="What is the average duration of a viral sinusitis condition era?">Avg sinusitis duration</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Drugs</h3>
+        <button class="sample-q" data-q="What percentage of diabetic patients are on metformin?">% diabetics on metformin</button>
+        <button class="sample-q" data-q="What is the most common drug prescribed after a diabetes diagnosis?">Most common drug after diabetes dx</button>
+        <button class="sample-q" data-q="What percentage of patients with hypertension are prescribed lisinopril?">% hypertension on lisinopril</button>
+        <button class="sample-q" data-q="List all drugs prescribed to patients with chronic kidney disease.">Drugs for CKD patients</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Measurements</h3>
+        <button class="sample-q" data-q="How many patients have had a BMI over 30?">Patients with BMI > 30</button>
+        <button class="sample-q" data-q="What is the average BMI across all patients?">Average BMI</button>
+        <button class="sample-q" data-q="Find patients with HbA1c greater than 6.5 percent. How many also have a diabetes diagnosis?">HbA1c > 6.5% with diabetes?</button>
+        <button class="sample-q" data-q="What is the distribution of systolic blood pressure values?">Systolic BP distribution</button>
+        <button class="sample-q" data-q="Find patients with abnormally high creatinine levels.">High creatinine patients</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Procedures</h3>
+        <button class="sample-q" data-q="How many patients have received a colonoscopy?">Colonoscopy count</button>
+        <button class="sample-q" data-q="What procedures are most commonly associated with emergency visits?">Most common ER procedures</button>
+        <button class="sample-q" data-q="What is the most common procedure for patients aged 40-50?">Most common procedure age 40-50</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Cross-Domain</h3>
+        <button class="sample-q" data-q="What drugs are most commonly prescribed to patients with hypertension?">Most prescribed drugs for hypertension</button>
+        <button class="sample-q" data-q="What is the mortality rate for patients with 3 or more chronic conditions?">Mortality w/ 3+ chronic conditions</button>
+        <button class="sample-q" data-q="What is the average cost per visit type (outpatient vs ER vs inpatient)?">Avg cost by visit type</button>
+        <button class="sample-q" data-q="Build a cohort of patients with diabetes, at least one HbA1c measurement, and a drug exposure to metformin.">Diabetes + HbA1c + metformin cohort</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Temporal</h3>
+        <button class="sample-q" data-q="What is the average time between a diabetes diagnosis and the first metformin prescription?">Time from diabetes to metformin</button>
+        <button class="sample-q" data-q="What is the 30-day readmission rate for inpatient visits?">30-day readmission rate</button>
+      </div>
+
+      <div class="sidebar-group">
+        <h3>Demographics</h3>
+        <button class="sample-q" data-q="What is the gender distribution of all patients?">Gender distribution</button>
+        <button class="sample-q" data-q="What is the race distribution of patients with diabetes?">Race distribution of diabetics</button>
+      </div>
+    </aside>
+
+    <!-- Main content area -->
+    <div class="main-content">
+      <!-- Chat view -->
+      <div id="chat-view" class="view active">
+        <div id="chat-scroll">
+          <div id="messages"></div>
+        </div>
+        <div class="input-bar">
+          <form id="input-form">
+            <input type="text" id="question" placeholder="e.g. How many patients have diabetes?" autocomplete="off" autofocus>
+            <button type="submit" id="send-btn">Send</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- SQL IDE view -->
+      <div id="sql-view" class="view">
+        <div class="sql-ide">
+          <div class="sql-input-pane">
+            <div class="sql-header">
+              <span>SQL Query</span>
+              <button id="sql-run-btn">Run</button>
+            </div>
+            <textarea id="sql-editor" placeholder="SELECT COUNT(DISTINCT person_id) FROM cdm_synthea.condition_occurrence WHERE condition_concept_id = 201826;" spellcheck="false"></textarea>
+          </div>
+          <div class="sql-output-pane">
+            <div class="sql-header">
+              <span>Results</span>
+              <span id="sql-meta" class="sql-meta"></span>
+            </div>
+            <div id="sql-results"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
