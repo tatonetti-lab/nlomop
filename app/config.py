@@ -11,7 +11,7 @@ class AzureOpenAIConfig(BaseSettings):
 
     endpoint: str
     api_key: str
-    deployment: str = "gpt-4o-mini"
+    deployment: str = "gpt-5-mini"
     api_version: str = "2024-12-01-preview"
 
 

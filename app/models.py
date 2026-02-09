@@ -26,3 +26,5 @@ class QueryResponse(BaseModel):
     error: str = ""
     elapsed_s: float = 0.0
     model: str = ""
+    analysis_result: dict | None = None
+    analysis_queries: list[str] = []

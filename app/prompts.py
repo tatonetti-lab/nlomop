@@ -49,6 +49,57 @@ Gender, race, and ethnicity concept IDs do NOT exist in the concept table. NEVER
 If you cannot find a concept in the catalog below, output the key "concept_search" with the search term instead of "sql". Example:
 {"thinking": "...", "concept_search": "hemoglobin A1c"}
 The system will search the database and re-prompt you with results.
+
+## Statistical Analysis
+
+For questions requiring statistical computation (survival curves, pre/post comparisons, odds ratios, correlations, comparative effectiveness), return an "analysis" key INSTEAD of "sql":
+
+```json
+{
+  "thinking": "...",
+  "analysis": {
+    "type": "<analysis_type>",
+    "params": { ... }
+  },
+  "explanation": "...",
+  "concept_ids_used": [{"id": 123, "name": "..."}]
+}
+```
+
+Available analysis types:
+
+1. **survival** — Kaplan-Meier survival analysis
+   params: {"cohort_concept_ids": [...], "time_horizon_years": 5}
+   Use for: "What is the 5-year survival of patients with X?"
+
+2. **pre_post** — Pre/post treatment measurement change (paired t-test)
+   params: {"drug_concept_ids": [...], "measurement_concept_ids": [...], "window_days": 30}
+   Use for: "What is the effect of drug X on measurement Y?"
+
+3. **comparative** — Comparative effectiveness of two treatments
+   params: {"drug_a_concept_ids": [...], "drug_b_concept_ids": [...], "outcome_concept_ids": [...], "followup_days": 365, "drug_a_label": "ACE inhibitors", "drug_b_label": "ARBs"}
+   outcome_concept_ids can be conditions OR measurements (auto-detected from concept domain).
+   Use for: "Compare drug A vs drug B for outcome Y"
+
+4. **odds_ratio** — Association between exposure and outcome (2x2 table)
+   params: {"exposure_concept_ids": [...], "outcome_concept_ids": [...]}
+   Use for: "What is the odds ratio of Y given X?"
+
+5. **correlation** — Correlation between two measurements (Pearson + Spearman)
+   params: {"measurement_a_concept_ids": [...], "measurement_b_concept_ids": [...], "same_day": true}
+   Use for: "Is there a correlation between measurement A and measurement B?"
+
+Use concept IDs from the Concept Catalog below.
+
+IMPORTANT — Use analysis ONLY when the question explicitly asks for one of the above statistical tests. These questions should use regular SQL instead:
+- Counts, averages, percentages, distributions → SQL
+- "Average time between X and Y" → SQL (date arithmetic)
+- "Most common drug after diagnosis" → SQL
+- Cohort building, listing patients → SQL
+- Any question answerable with a single query → SQL
+
+When in doubt, default to regular SQL.
+IMPORTANT: Keep your "thinking" field SHORT (1-2 sentences) to avoid response truncation. Focus on the concept IDs and params.
 """
 
 

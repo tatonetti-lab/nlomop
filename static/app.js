@@ -14,6 +14,66 @@ const settingsClose = document.getElementById("settings-close");
 const modelSelect = document.getElementById("model-select");
 const customModelInput = document.getElementById("custom-model");
 const customModelBtn = document.getElementById("custom-model-btn");
+const helpBtn = document.getElementById("help-btn");
+
+// ── Help ──
+const _helpHtml = `
+    <div class="help-content">
+      <h3>What can you ask?</h3>
+      <p>Ask clinical questions about <strong>11,463 synthetic patients</strong> in an OMOP CDM database. Questions are translated to SQL or routed to built-in statistical analyses.</p>
+
+      <div class="help-section">
+        <h4>SQL Queries</h4>
+        <p>Any question answerable with a database query:</p>
+        <ul>
+          <li>Patient counts &amp; prevalence &mdash; <em>"How many patients have diabetes?"</em></li>
+          <li>Distributions &amp; averages &mdash; <em>"What is the average BMI?"</em></li>
+          <li>Drug prescribing patterns &mdash; <em>"Most common drug after a diabetes diagnosis?"</em></li>
+          <li>Temporal questions &mdash; <em>"Average time between diabetes diagnosis and first metformin prescription?"</em></li>
+          <li>Cohort building &mdash; <em>"Patients with diabetes, HbA1c &gt; 6.5%, and on metformin"</em></li>
+          <li>Demographics, procedures, visits, costs</li>
+        </ul>
+      </div>
+
+      <div class="help-section">
+        <h4>Statistical Analyses</h4>
+        <p>These run multiple queries and compute statistics automatically:</p>
+        <table>
+          <thead><tr><th>Analysis</th><th>Example question</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Survival</strong><br><span class="help-detail">Kaplan-Meier curves</span></td><td><em>"What is the 5-year survival of patients with type 2 diabetes?"</em></td></tr>
+            <tr><td><strong>Pre/Post</strong><br><span class="help-detail">Paired t-test</span></td><td><em>"What is the effect of statins on total cholesterol within 30 days?"</em></td></tr>
+            <tr><td><strong>Comparative</strong><br><span class="help-detail">Two-group comparison</span></td><td><em>"Compare ACE inhibitors vs ARBs for blood pressure outcomes"</em></td></tr>
+            <tr><td><strong>Odds Ratio</strong><br><span class="help-detail">2&times;2 contingency table</span></td><td><em>"What is the odds ratio of chronic kidney disease given diabetes?"</em></td></tr>
+            <tr><td><strong>Correlation</strong><br><span class="help-detail">Pearson &amp; Spearman</span></td><td><em>"Is there a correlation between BMI and systolic blood pressure?"</em></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="help-hint">Tip: Use the test questions in the sidebar to try examples, or type your own question below.</p>
+    </div>
+`;
+
+function showHelp() {
+  // Toggle: if help card exists and is visible, remove it
+  const existing = document.getElementById("help-card");
+  if (existing) {
+    existing.remove();
+    return;
+  }
+
+  const div = document.createElement("div");
+  div.className = "msg assistant";
+  div.id = "help-card";
+  div.innerHTML = _helpHtml;
+  messagesEl.prepend(div);
+  document.getElementById("chat-scroll").scrollTop = 0;
+}
+
+helpBtn.addEventListener("click", showHelp);
+
+// Show help on first load
+showHelp();
 
 // ── Settings ──
 settingsBtn.addEventListener("click", () => {
@@ -181,6 +241,20 @@ function renderResult(data) {
     html += "</summary><pre>" + escapeHtml(data.sql) + "</pre></details>";
   }
 
+  // Analysis result rendering
+  if (data.analysis_result) {
+    html += renderAnalysisResult(data.analysis_result);
+  }
+
+  // Analysis sub-queries in collapsible block
+  if (data.analysis_queries && data.analysis_queries.length > 0) {
+    html += "<details><summary>Analysis queries (" + data.analysis_queries.length + ")</summary>";
+    for (const q of data.analysis_queries) {
+      html += "<pre>" + escapeHtml(q) + "</pre>";
+    }
+    html += "</details>";
+  }
+
   if (data.rows && data.rows.length > 0) {
     if (data.columns.length === 1 && data.rows.length === 1) {
       html +=
@@ -292,6 +366,94 @@ async function runSql() {
   } finally {
     sqlRunBtn.disabled = false;
   }
+}
+
+// ── Analysis result rendering ──
+function renderAnalysisResult(result) {
+  let html = '<div class="analysis-card">';
+
+  // Title
+  const typeLabels = {
+    survival: "Kaplan-Meier Survival Analysis",
+    pre_post: "Pre/Post Treatment Comparison",
+    comparative: "Comparative Effectiveness",
+    odds_ratio: "Odds Ratio Analysis",
+    correlation: "Correlation Analysis",
+  };
+  html +=
+    "<h4>" +
+    escapeHtml(typeLabels[result.analysis_type] || result.analysis_type) +
+    "</h4>";
+
+  // Warnings
+  if (result.warnings && result.warnings.length > 0) {
+    for (const w of result.warnings) {
+      html += '<div class="analysis-warning">' + escapeHtml(w) + "</div>";
+    }
+  }
+
+  // Summary stats
+  if (result.summary) {
+    html += '<div class="analysis-stats">';
+    for (const [key, value] of Object.entries(result.summary)) {
+      if (value === null || value === undefined) continue;
+      const label = formatStatLabel(key);
+      const displayVal = formatStatValue(key, value);
+      const sigClass =
+        key === "p_value" && typeof value === "number" && value < 0.05
+          ? " significant"
+          : "";
+      html += '<div class="analysis-stat">';
+      html += '<div class="stat-label">' + escapeHtml(label) + "</div>";
+      html +=
+        '<div class="stat-value' +
+        sigClass +
+        '">' +
+        escapeHtml(displayVal) +
+        "</div>";
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // Detail table
+  if (
+    result.detail_columns &&
+    result.detail_rows &&
+    result.detail_rows.length > 0
+  ) {
+    html += buildTable(result.detail_columns, result.detail_rows);
+  }
+
+  html += "</div>";
+  return html;
+}
+
+function formatStatLabel(key) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatStatValue(key, value) {
+  if (typeof value === "number") {
+    if (key === "p_value" || key === "pearson_p" || key === "spearman_p") {
+      return value < 0.001 ? "< 0.001" : value.toFixed(4);
+    }
+    if (
+      key.includes("rate") ||
+      key.includes("survival") ||
+      key.includes("_r") ||
+      key === "pearson_r" ||
+      key === "spearman_r" ||
+      key === "cohens_d"
+    ) {
+      return value.toFixed(3);
+    }
+    if (Number.isInteger(value)) return value.toLocaleString();
+    return value.toFixed(2);
+  }
+  return String(value);
 }
 
 // ── Shared helpers ──

@@ -9,6 +9,8 @@ dependencies = [
     "pydantic-settings>=2.7",
     "openai>=1.60",
     "psycopg[binary,pool]>=3.2",
+    "scipy>=1.14",
+    "lifelines>=0.30",
 ]
 
 [project.optional-dependencies]

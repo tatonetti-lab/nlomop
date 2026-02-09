@@ -12,10 +12,14 @@ _deployment: str = settings.azure_openai.deployment
 # Deployments actually provisioned on this Azure OpenAI endpoint.
 AVAILABLE_MODELS = [
     "gpt-4o-mini",
+    "gpt-4.1-mini",
     "gpt-5-mini",
     "gpt-5.2",
     "model-router",
 ]
+
+# Cheap model for lightweight tasks (label generation, etc.)
+UTILITY_MODEL = "gpt-4.1-mini"
 
 # Models that require max_completion_tokens instead of max_tokens.
 _USES_MAX_COMPLETION_TOKENS = {"gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.2",
@@ -54,8 +58,8 @@ def set_deployment(name: str) -> None:
     log.info("Deployment changed to: %s", name)
 
 
-async def chat(system_prompt: str, user_message: str) -> str:
-    """Send a chat completion request and return the assistant text."""
+async def chat(system_prompt: str, user_message: str) -> tuple[str, str]:
+    """Send a chat completion request. Returns (text, finish_reason)."""
     client = get_client()
 
     newer_api = _needs_max_completion_tokens(_deployment)
@@ -76,4 +80,17 @@ async def chat(system_prompt: str, user_message: str) -> str:
         kwargs["temperature"] = 0.0
 
     resp = await client.chat.completions.create(**kwargs)
-    return resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    return choice.message.content or "", choice.finish_reason or "stop"
+
+
+async def quick_chat(user_message: str, model: str = UTILITY_MODEL, max_tokens: int = 60) -> str:
+    """Lightweight LLM call for simple tasks (labels, summaries). Uses cheap model."""
+    client = get_client()
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": user_message}],
+        max_tokens=max_tokens,
+        temperature=0.0,
+    )
+    return (resp.choices[0].message.content or "").strip()

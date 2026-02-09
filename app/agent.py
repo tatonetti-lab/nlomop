@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from app import db, llm
+from app.analysis import run_analysis
 from app.models import ConceptUsed, QueryResponse
 from app.prompts import build_system_prompt
 
@@ -30,26 +31,108 @@ def _validate_sql(sql: str) -> str | None:
     return None
 
 
-def _parse_llm_json(text: str) -> dict[str, Any]:
-    """Leniently parse JSON from LLM output."""
+def _repair_truncated_json(text: str) -> str:
+    """Try to close open braces/brackets in truncated JSON."""
+    # Escape bare newlines/tabs inside JSON strings (invalid JSON but common in LLM output)
+    fixed_chars = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            fixed_chars.append(ch)
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            fixed_chars.append(ch)
+            continue
+        if ch == '"':
+            in_string = not in_string
+            fixed_chars.append(ch)
+            continue
+        if in_string and ch == "\n":
+            fixed_chars.append("\\n")
+            continue
+        if in_string and ch == "\r":
+            fixed_chars.append("\\r")
+            continue
+        if in_string and ch == "\t":
+            fixed_chars.append("\\t")
+            continue
+        fixed_chars.append(ch)
+    text = "".join(fixed_chars)
+
+    # Count unmatched openers
+    opens = 0
+    brackets = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            opens += 1
+        elif ch == "}":
+            opens -= 1
+        elif ch == "[":
+            brackets += 1
+        elif ch == "]":
+            brackets -= 1
+
+    # If we're inside a string, close it
+    if in_string:
+        text += '"'
+    # Close brackets then braces
+    text += "]" * max(brackets, 0)
+    text += "}" * max(opens, 0)
+    return text
+
+
+class _ParseResult:
+    """Wrapper to track whether JSON was repaired from truncated output."""
+
+    def __init__(self, data: dict[str, Any], repaired: bool = False):
+        self.data = data
+        self.repaired = repaired
+
+
+def _parse_llm_json(text: str) -> _ParseResult:
+    """Leniently parse JSON from LLM output. Returns _ParseResult."""
     text = text.strip()
     # Try raw JSON
     try:
-        return json.loads(text)
+        return _ParseResult(json.loads(text))
     except json.JSONDecodeError:
         pass
     # Try extracting from code fences
     m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(1).strip())
+            return _ParseResult(json.loads(m.group(1).strip()))
         except json.JSONDecodeError:
             pass
     # Try finding first { ... }
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group())
+            return _ParseResult(json.loads(m.group()))
+        except json.JSONDecodeError:
+            pass
+    # Always try to repair incomplete JSON as a last resort
+    m = re.search(r"\{.*", text, re.DOTALL)
+    if m:
+        repaired = _repair_truncated_json(m.group())
+        try:
+            return _ParseResult(json.loads(repaired), repaired=True)
         except json.JSONDecodeError:
             pass
     raise ValueError(f"Could not parse JSON from LLM output: {text[:200]}")
@@ -62,7 +145,7 @@ async def answer(question: str) -> QueryResponse:
 
     # First LLM call
     try:
-        raw = await llm.chat(system_prompt, question)
+        raw, finish_reason = await llm.chat(system_prompt, question)
     except Exception as e:
         log.exception("LLM call failed")
         return QueryResponse(
@@ -72,16 +155,33 @@ async def answer(question: str) -> QueryResponse:
             model=model,
         )
 
-    # Parse response
+    # Parse response — retry with concise prompt if truncated/incomplete
     try:
-        parsed = _parse_llm_json(raw)
-    except ValueError as e:
-        return QueryResponse(
-            question=question,
-            error=str(e),
-            elapsed_s=time.monotonic() - t0,
-            model=model,
+        result = _parse_llm_json(raw)
+        parsed = result.data
+        needs_retry = result.repaired and "sql" not in parsed and "analysis" not in parsed
+    except ValueError:
+        parsed = {}
+        needs_retry = True
+
+    if needs_retry:
+        log.warning("Response incomplete (no sql/analysis), retrying with concise prompt")
+        retry_msg = (
+            "IMPORTANT: Keep your response SHORT. Use 1 sentence for thinking.\n"
+            "Return ONLY compact JSON with no extra text. The question is:\n" + question
         )
+        try:
+            raw, _fr = await llm.chat(system_prompt, retry_msg)
+            retry_result = _parse_llm_json(raw)
+            parsed = retry_result.data
+        except Exception as e:
+            log.exception("Retry after truncation failed")
+            return QueryResponse(
+                question=question,
+                error=f"Response was truncated and retry failed: {e}",
+                elapsed_s=time.monotonic() - t0,
+                model=model,
+            )
 
     # Handle concept_search fallback
     if "concept_search" in parsed and "sql" not in parsed:
@@ -106,8 +206,9 @@ async def answer(question: str) -> QueryResponse:
                 f"{concept_text}\n\n"
                 f"Now answer the original question using the appropriate concept(s):\n{question}"
             )
-            raw = await llm.chat(system_prompt, retry_msg)
-            parsed = _parse_llm_json(raw)
+            raw, _fr = await llm.chat(system_prompt, retry_msg)
+            result = _parse_llm_json(raw)
+            parsed = result.data
         except Exception as e:
             log.exception("Concept search fallback failed")
             return QueryResponse(
@@ -126,6 +227,54 @@ async def answer(question: str) -> QueryResponse:
     for c in concepts_raw:
         if isinstance(c, dict) and "id" in c and "name" in c:
             concepts_used.append(ConceptUsed(id=c["id"], name=c["name"]))
+
+    # Handle analysis requests
+    if "analysis" in parsed:
+        analysis_spec = parsed["analysis"]
+        try:
+            result = await run_analysis(analysis_spec["type"], analysis_spec.get("params", {}))
+            return QueryResponse(
+                question=question,
+                thinking=thinking,
+                explanation=explanation,
+                concepts_used=concepts_used,
+                analysis_result=result.model_dump(),
+                analysis_queries=result.queries_used,
+                elapsed_s=round(time.monotonic() - t0, 2),
+                model=model,
+            )
+        except Exception as e:
+            # Analysis failed — fall back to SQL generation
+            log.warning("Analysis failed (%s), falling back to SQL: %s", analysis_spec.get("type"), e)
+            fallback_msg = (
+                "The statistical analysis approach failed for this question. "
+                "Answer it with a regular SQL query instead. "
+                "Do NOT use the analysis key. Return only sql.\n\n" + question
+            )
+            try:
+                raw, _fr = await llm.chat(system_prompt, fallback_msg)
+                fb_result = _parse_llm_json(raw)
+                parsed = fb_result.data
+                sql = parsed.get("sql", "")
+                thinking = parsed.get("thinking", thinking)
+                explanation = parsed.get("explanation", explanation)
+                concepts_raw = parsed.get("concept_ids_used", [])
+                concepts_used = []
+                for c in concepts_raw:
+                    if isinstance(c, dict) and "id" in c and "name" in c:
+                        concepts_used.append(ConceptUsed(id=c["id"], name=c["name"]))
+                # Fall through to SQL execution below
+            except Exception as e2:
+                log.exception("SQL fallback after analysis failure also failed")
+                return QueryResponse(
+                    question=question,
+                    thinking=thinking,
+                    explanation=explanation,
+                    concepts_used=concepts_used,
+                    error=f"Analysis failed and SQL fallback also failed: {e2}",
+                    elapsed_s=round(time.monotonic() - t0, 2),
+                    model=model,
+                )
 
     if not sql:
         return QueryResponse(
