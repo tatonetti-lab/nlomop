@@ -1,4 +1,8 @@
-"""Data source management — CRUD + JSON file persistence."""
+"""Data source management — CRUD + JSON file persistence.
+
+Passwords (db and SSH) are stored in the OS keychain via `keyring`,
+never in data_sources.json.
+"""
 
 import json
 import logging
@@ -6,11 +10,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import keyring
 from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "data_sources.json"
+_KEYRING_SERVICE = "nlomop"
+_SECRET_FIELDS = ("password", "ssh_password")
 
 
 class DataSource(BaseModel):
@@ -23,6 +30,13 @@ class DataSource(BaseModel):
     password: str = ""
     schema: str = "cdm_synthea"
     description: str = ""
+    # SSH tunnel fields
+    use_ssh: bool = False
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    ssh_password: str = ""
 
     @property
     def conninfo(self) -> str:
@@ -37,15 +51,75 @@ class DataSourceStore(BaseModel):
     active_id: str = ""
 
 
+# ── Keyring helpers ──
+
+
+def _keyring_key(source_id: str, field: str) -> str:
+    return f"{source_id}:{field}"
+
+
+def _save_secret(source_id: str, field: str, value: str) -> None:
+    key = _keyring_key(source_id, field)
+    if value:
+        keyring.set_password(_KEYRING_SERVICE, key, value)
+    else:
+        try:
+            keyring.delete_password(_KEYRING_SERVICE, key)
+        except keyring.errors.PasswordDeleteError:
+            pass
+
+
+def _load_secret(source_id: str, field: str) -> str:
+    return keyring.get_password(_KEYRING_SERVICE, _keyring_key(source_id, field)) or ""
+
+
+def _delete_secrets(source_id: str) -> None:
+    for field in _SECRET_FIELDS:
+        try:
+            keyring.delete_password(_KEYRING_SERVICE, _keyring_key(source_id, field))
+        except keyring.errors.PasswordDeleteError:
+            pass
+
+
+def _populate_secrets(source: DataSource) -> DataSource:
+    """Fill in password fields from keyring."""
+    data = source.model_dump()
+    for field in _SECRET_FIELDS:
+        data[field] = _load_secret(source.id, field)
+    return DataSource(**data)
+
+
+def _strip_secrets(store: DataSourceStore) -> dict:
+    """Return store dict with password fields blanked out for JSON."""
+    data = store.model_dump()
+    for src in data["sources"]:
+        for field in _SECRET_FIELDS:
+            src[field] = ""
+    return data
+
+
+# ── Persistence ──
+
+
 def _load_store() -> DataSourceStore:
     if _CONFIG_PATH.exists():
-        data = json.loads(_CONFIG_PATH.read_text())
-        return DataSourceStore(**data)
+        raw = json.loads(_CONFIG_PATH.read_text())
+        store = DataSourceStore(**raw)
+        # Populate secrets from keyring
+        store.sources = [_populate_secrets(s) for s in store.sources]
+        return store
     return DataSourceStore()
 
 
 def _save_store(store: DataSourceStore) -> None:
-    _CONFIG_PATH.write_text(store.model_dump_json(indent=2) + "\n")
+    # Save secrets to keyring, strip them from JSON
+    for src in store.sources:
+        for field in _SECRET_FIELDS:
+            value = getattr(src, field)
+            if value:
+                _save_secret(src.id, field, value)
+    stripped = _strip_secrets(store)
+    _CONFIG_PATH.write_text(json.dumps(stripped, indent=2) + "\n")
 
 
 def seed_from_env() -> DataSourceStore:
@@ -113,6 +187,11 @@ def update_source(source_id: str, updates: dict[str, Any]) -> DataSource | None:
     for i, s in enumerate(store.sources):
         if s.id == source_id:
             data = s.model_dump()
+            # Only overwrite secret fields if a new value was provided.
+            # Empty string from the edit form means "unchanged".
+            for field in _SECRET_FIELDS:
+                if not updates.get(field):
+                    updates.pop(field, None)
             data.update({k: v for k, v in updates.items() if v is not None})
             data["id"] = source_id  # prevent id change
             store.sources[i] = DataSource(**data)
@@ -130,6 +209,7 @@ def delete_source(source_id: str) -> bool:
     if store.active_id == source_id:
         store.active_id = store.sources[0].id if store.sources else ""
     _save_store(store)
+    _delete_secrets(source_id)
     return True
 
 

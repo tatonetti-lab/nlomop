@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -44,6 +45,21 @@ def _mask_password(pw: str) -> str:
     return pw[0] + "*" * (len(pw) - 1) if len(pw) > 1 else "*"
 
 
+def _build_ssh_config(src: DataSource) -> dict | None:
+    """Extract SSH tunnel config dict from a DataSource, or None if SSH is off."""
+    if not src.use_ssh or not src.ssh_host:
+        return None
+    return {
+        "ssh_host": src.ssh_host,
+        "ssh_port": src.ssh_port,
+        "ssh_user": src.ssh_user,
+        "ssh_key_path": src.ssh_key_path,
+        "ssh_password": src.ssh_password,
+        "db_host": src.host,
+        "db_port": src.port,
+    }
+
+
 def _source_to_out(src: DataSource, active_id: str) -> DataSourceOut:
     return DataSourceOut(
         id=src.id,
@@ -56,32 +72,88 @@ def _source_to_out(src: DataSource, active_id: str) -> DataSourceOut:
         schema=src.schema,
         description=src.description,
         is_active=(src.id == active_id),
+        use_ssh=src.use_ssh,
+        ssh_host=src.ssh_host,
+        ssh_port=src.ssh_port,
+        ssh_user=src.ssh_user,
+        ssh_key_path=src.ssh_key_path,
+        ssh_password=_mask_password(src.ssh_password),
     )
+
+
+_catalog_status: str = "idle"  # "idle" | "loading" | "ready" | "error:<msg>"
 
 
 async def _load_concept_cache() -> None:
     """Fetch concept catalog from current pool and update cache."""
-    log.info("Loading concept catalog...")
-    concepts = await db.fetch_concept_catalog()
-    catalog_text = build_catalog_text(concepts)
-    set_catalog(catalog_text)
-    log.info("Concept catalog loaded")
+    global _catalog_status
+    _catalog_status = "loading"
+    try:
+        log.info("Loading concept catalog...")
+        concepts = await db.fetch_concept_catalog()
+        catalog_text = build_catalog_text(concepts)
+        set_catalog(catalog_text)
+        _catalog_status = "ready"
+        log.info("Concept catalog loaded (%d concepts)", len(concepts))
+    except Exception as exc:
+        _catalog_status = f"error:{exc}"
+        log.warning("Failed to load concept catalog: %s", exc)
+
+
+def _load_concept_cache_background() -> None:
+    """Fire-and-forget: schedule concept cache loading as a background task."""
+    asyncio.create_task(_load_concept_cache())
+
+
+async def _try_connect(src: DataSource) -> bool:
+    """Try to open a pool for a source. Returns True on success.
+
+    Concept cache loading is deferred to a background task so startup
+    and activation are fast even over slow SSH tunnels.
+    """
+    try:
+        ssh_config = _build_ssh_config(src)
+        await db.open_pool(
+            conninfo=src.conninfo, schema=src.schema, ssh_config=ssh_config
+        )
+        _load_concept_cache_background()
+        return True
+    except Exception as exc:
+        log.warning("Failed to connect to '%s': %s", src.name, exc)
+        await db.close_pool()
+        return False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: seed data sources, open pool for active source, load concept cache
     store = seed_from_env()
+    sources = list_sources()
     active = get_active_source()
+    connected = False
 
+    # 1. Try the active source first
     if active:
-        log.info("Opening database pool for source: %s", active.name)
-        await db.open_pool(conninfo=active.conninfo, schema=active.schema)
-    else:
-        log.info("No data source configured, opening pool from .env defaults")
-        await db.open_pool()
+        log.info("Trying active source: %s", active.name)
+        connected = await _try_connect(active)
 
-    await _load_concept_cache()
+    # 2. If that failed, try each remaining source as fallback
+    if not connected:
+        for src in sources:
+            if active and src.id == active.id:
+                continue  # already tried
+            log.info("Falling back to source: %s", src.name)
+            if await _try_connect(src):
+                set_active_source_id(src.id)
+                connected = True
+                break
+
+    if connected:
+        log.info("Database connected (source: %s)", get_active_source().name)
+    else:
+        log.warning(
+            "No data source connected. The app will start but queries "
+            "will fail until a working source is activated via Settings."
+        )
 
     yield
 
@@ -94,17 +166,32 @@ app = FastAPI(title="nlomop", version="0.1.0", lifespan=lifespan)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    connected = db.is_pool_ready()
+    return {"status": "ok", "db_connected": connected}
+
+
+@app.get("/api/catalog-status")
+async def catalog_status():
+    """Return the current concept catalog loading status."""
+    return {"status": _catalog_status}
 
 
 @app.post("/api/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
+    if not db.is_pool_ready():
+        return QueryResponse(
+            question=req.question,
+            explanation="No database connected. Open Settings and activate a data source.",
+            error="No database connected",
+        )
     return await agent.answer(req.question)
 
 
 @app.post("/api/sql")
 async def run_sql(req: SqlRequest):
     """Execute raw SQL for the SQL IDE panel (read-only, same safety as /api/query)."""
+    if not db.is_pool_ready():
+        return {"columns": [], "rows": [], "error": "No database connected. Open Settings and activate a data source.", "elapsed_s": 0}
     from app.agent import _validate_sql
     err = _validate_sql(req.sql)
     if err:
@@ -165,6 +252,12 @@ async def api_add_datasource(req: DataSourceIn):
         password=req.password,
         schema=req.schema,
         description=req.description,
+        use_ssh=req.use_ssh,
+        ssh_host=req.ssh_host,
+        ssh_port=req.ssh_port,
+        ssh_user=req.ssh_user,
+        ssh_key_path=req.ssh_key_path,
+        ssh_password=req.ssh_password,
     )
     created = add_source(src)
     active_id = get_active_source_id()
@@ -199,8 +292,17 @@ async def api_activate_datasource(source_id: str):
         raise HTTPException(status_code=404, detail="Data source not found")
 
     set_active_source_id(source_id)
-    await db.switch_source(conninfo=src.conninfo, schema=src.schema)
-    await _load_concept_cache()
+    ssh_config = _build_ssh_config(src)
+    try:
+        await db.switch_source(
+            conninfo=src.conninfo, schema=src.schema, ssh_config=ssh_config
+        )
+    except Exception as exc:
+        await db.close_pool()
+        raise HTTPException(status_code=502, detail=f"Connection failed: {exc}")
+
+    # Load concept catalog in the background — don't block the response
+    _load_concept_cache_background()
 
     return _source_to_out(src, source_id)
 
@@ -210,15 +312,39 @@ async def api_test_datasource(req: DataSourceTestRequest):
     conninfo = f"host={req.host} port={req.port} dbname={req.dbname} user={req.user}"
     if req.password:
         conninfo += f" password={req.password}"
-    ok, message = await db.test_connection(conninfo, req.schema)
+
+    ssh_config = None
+    if req.use_ssh and req.ssh_host:
+        ssh_config = {
+            "ssh_host": req.ssh_host,
+            "ssh_port": req.ssh_port,
+            "ssh_user": req.ssh_user,
+            "ssh_key_path": req.ssh_key_path,
+            "ssh_password": req.ssh_password,
+            "db_host": req.host,
+            "db_port": req.port,
+        }
+
+    ok, message = await db.test_connection(conninfo, req.schema, ssh_config=ssh_config)
     return DataSourceTestResponse(ok=ok, message=message)
 
 
-# Serve index.html at root
+# Serve index.html at root (no-cache so browser always gets latest)
 @app.get("/")
 async def index():
-    return FileResponse("static/index.html")
+    return FileResponse(
+        "static/index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
-# Serve other static files
+# Serve other static files (no-cache for development)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def add_no_cache_to_static(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response

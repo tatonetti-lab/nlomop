@@ -42,6 +42,12 @@ class DataSourceIn(BaseModel):
     password: str = ""
     schema: str = "cdm_synthea"
     description: str = ""
+    use_ssh: bool = False
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    ssh_password: str = ""
 
 
 class DataSourceOut(BaseModel):
@@ -55,6 +61,12 @@ class DataSourceOut(BaseModel):
     schema: str
     description: str
     is_active: bool = False
+    use_ssh: bool = False
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    ssh_password: str = ""  # will be masked before returning
 
 
 class DataSourceTestRequest(BaseModel):
@@ -64,6 +76,12 @@ class DataSourceTestRequest(BaseModel):
     user: str = ""
     password: str = ""
     schema: str = "cdm_synthea"
+    use_ssh: bool = False
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    ssh_password: str = ""
 
 
 class DataSourceTestResponse(BaseModel):

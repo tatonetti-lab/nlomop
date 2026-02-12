@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>nlomop — Natural Language OMOP</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
   <header>
@@ -43,19 +43,37 @@
         <div id="ds-form-container" class="ds-form-container hidden">
           <h3 id="ds-form-title">Add Data Source</h3>
           <input type="hidden" id="ds-form-id" value="">
+
+          <p id="ds-ssh-hint" class="settings-hint ds-ssh-hint hidden">Host and Port below refer to the database as seen from the SSH server.</p>
           <div class="ds-form-grid">
-            <label>Name <input type="text" id="ds-form-name" placeholder="My Database"></label>
-            <label>Host <input type="text" id="ds-form-host" value="localhost"></label>
-            <label>Port <input type="number" id="ds-form-port" value="5432"></label>
+            <label class="ds-full-width">Name <input type="text" id="ds-form-name" placeholder="My Database"></label>
+            <label id="ds-label-host">Host <input type="text" id="ds-form-host" value="localhost"></label>
+            <label id="ds-label-port">Port <input type="number" id="ds-form-port" value="5432"></label>
             <label>Database <input type="text" id="ds-form-dbname" placeholder="synthea10"></label>
+            <label>Schema <input type="text" id="ds-form-schema" value="cdm_synthea"></label>
             <label>User <input type="text" id="ds-form-user" placeholder="postgres"></label>
             <label>Password <input type="password" id="ds-form-password" placeholder="(optional)"></label>
-            <label>Schema <input type="text" id="ds-form-schema" value="cdm_synthea"></label>
-            <label>Description <input type="text" id="ds-form-desc" placeholder="(optional)"></label>
+            <label class="ds-full-width">Description <input type="text" id="ds-form-desc" placeholder="(optional)"></label>
           </div>
-          <div class="ds-form-actions">
+
+          <label class="ds-ssh-toggle">
+            <input type="checkbox" id="ds-form-use-ssh">
+            Connect via SSH tunnel
+          </label>
+
+          <div id="ds-ssh-fields" class="ds-form-grid ds-ssh-fields hidden">
+            <label>SSH Host <input type="text" id="ds-form-ssh-host" placeholder="bastion.example.com"></label>
+            <label>SSH Port <input type="number" id="ds-form-ssh-port" value="22"></label>
+            <label>SSH User <input type="text" id="ds-form-ssh-user" placeholder="ubuntu"></label>
+            <label>SSH Key Path <input type="text" id="ds-form-ssh-key" placeholder="~/.ssh/id_rsa"></label>
+            <label class="ds-full-width">SSH Password <input type="password" id="ds-form-ssh-password" placeholder="(optional — for key passphrase or password auth)"></label>
+          </div>
+
+          <div class="ds-form-test-row">
             <button id="ds-form-test" class="ds-btn ds-btn-secondary">Test Connection</button>
             <span id="ds-form-test-result" class="ds-test-result"></span>
+          </div>
+          <div class="ds-form-actions">
             <div class="ds-form-right">
               <button id="ds-form-cancel" class="ds-btn ds-btn-secondary">Cancel</button>
               <button id="ds-form-save" class="ds-btn ds-btn-primary">Save</button>
@@ -185,6 +203,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

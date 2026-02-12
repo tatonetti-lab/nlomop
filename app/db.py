@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -10,13 +11,87 @@ log = logging.getLogger(__name__)
 
 _pool: AsyncConnectionPool | None = None
 _active_schema: str = settings.db.schema_
+_tunnel: Any = None  # SSHTunnelForwarder or None
 
 
-async def open_pool(conninfo: str | None = None, schema: str | None = None) -> None:
-    """Open a connection pool. Uses .env defaults if no args provided."""
-    global _pool, _active_schema
+def _create_tunnel(ssh_config: dict) -> Any:
+    """Create and start an SSH tunnel. Returns the SSHTunnelForwarder instance."""
+    from sshtunnel import SSHTunnelForwarder
+
+    kwargs: dict[str, Any] = {
+        "ssh_address_or_host": (ssh_config["ssh_host"], ssh_config["ssh_port"]),
+        "remote_bind_address": (ssh_config["db_host"], ssh_config["db_port"]),
+    }
+    if ssh_config.get("ssh_user"):
+        kwargs["ssh_username"] = ssh_config["ssh_user"]
+    if ssh_config.get("ssh_key_path"):
+        kwargs["ssh_pkey"] = str(Path(ssh_config["ssh_key_path"]).expanduser())
+    if ssh_config.get("ssh_password"):
+        kwargs["ssh_password"] = ssh_config["ssh_password"]
+
+    tunnel = SSHTunnelForwarder(**kwargs)
+    tunnel.start()
+    log.info(
+        "SSH tunnel started: localhost:%d -> %s:%d via %s:%d",
+        tunnel.local_bind_port,
+        ssh_config["db_host"],
+        ssh_config["db_port"],
+        ssh_config["ssh_host"],
+        ssh_config["ssh_port"],
+    )
+    return tunnel
+
+
+def _stop_tunnel() -> None:
+    """Stop the active SSH tunnel if one exists."""
+    global _tunnel
+    if _tunnel is not None:
+        try:
+            _tunnel.stop()
+            log.info("SSH tunnel stopped")
+        except Exception:
+            log.warning("Error stopping SSH tunnel", exc_info=True)
+        _tunnel = None
+
+
+def is_pool_ready() -> bool:
+    """Return True if the database pool is open and usable."""
+    return _pool is not None
+
+
+async def open_pool(
+    conninfo: str | None = None,
+    schema: str | None = None,
+    ssh_config: dict | None = None,
+) -> None:
+    """Open a connection pool. Uses .env defaults if no args provided.
+
+    If ssh_config is provided, an SSH tunnel is created first and the
+    connection is routed through localhost:<tunnel_port>.
+    Adds connect_timeout=10 to prevent hanging on unreachable hosts.
+    """
+    global _pool, _active_schema, _tunnel
+
+    effective_conninfo = conninfo or settings.db.conninfo
+
+    # Add a connect timeout so bad sources fail fast instead of hanging
+    if "connect_timeout" not in effective_conninfo:
+        effective_conninfo += " connect_timeout=10"
+
+    if ssh_config:
+        _tunnel = _create_tunnel(ssh_config)
+        # Rewrite conninfo to go through the tunnel
+        import re
+
+        effective_conninfo = re.sub(
+            r"host=\S+", f"host=127.0.0.1", effective_conninfo
+        )
+        effective_conninfo = re.sub(
+            r"port=\S+", f"port={_tunnel.local_bind_port}", effective_conninfo
+        )
+
     _pool = AsyncConnectionPool(
-        conninfo=conninfo or settings.db.conninfo,
+        conninfo=effective_conninfo,
         min_size=1,
         max_size=5,
         open=False,
@@ -33,12 +108,17 @@ async def close_pool() -> None:
         await _pool.close()
         _pool = None
         log.info("Database pool closed")
+    _stop_tunnel()
 
 
-async def switch_source(conninfo: str, schema: str) -> None:
+async def switch_source(
+    conninfo: str,
+    schema: str,
+    ssh_config: dict | None = None,
+) -> None:
     """Close current pool and open a new one for a different data source."""
     await close_pool()
-    await open_pool(conninfo=conninfo, schema=schema)
+    await open_pool(conninfo=conninfo, schema=schema, ssh_config=ssh_config)
 
 
 def get_schema() -> str:
@@ -154,12 +234,34 @@ async def search_concepts(term: str, limit: int = 20) -> list[dict[str, Any]]:
             return [dict(r) for r in rows]
 
 
-async def test_connection(conninfo: str, schema: str) -> tuple[bool, str]:
-    """Test a database connection. Returns (success, message)."""
+async def test_connection(
+    conninfo: str,
+    schema: str,
+    ssh_config: dict | None = None,
+) -> tuple[bool, str]:
+    """Test a database connection. Returns (success, message).
+
+    If ssh_config is provided, creates a temporary tunnel for the test
+    and tears it down afterward.
+    """
     import psycopg
 
+    tunnel = None
+    effective_conninfo = conninfo
+
     try:
-        async with await psycopg.AsyncConnection.connect(conninfo) as conn:
+        if ssh_config:
+            tunnel = _create_tunnel(ssh_config)
+            import re
+
+            effective_conninfo = re.sub(
+                r"host=\S+", f"host=127.0.0.1", effective_conninfo
+            )
+            effective_conninfo = re.sub(
+                r"port=\S+", f"port={tunnel.local_bind_port}", effective_conninfo
+            )
+
+        async with await psycopg.AsyncConnection.connect(effective_conninfo) as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(f"SET search_path TO {schema}")
                 await cur.execute(
@@ -167,6 +269,13 @@ async def test_connection(conninfo: str, schema: str) -> tuple[bool, str]:
                 )
                 row = await cur.fetchone()
                 n = row["n"] if row else 0
-                return True, f"Connected. {n:,} patients in {schema}.person."
+                suffix = " (via SSH tunnel)" if ssh_config else ""
+                return True, f"Connected{suffix}. {n:,} patients in {schema}.person."
     except Exception as e:
         return False, str(e)
+    finally:
+        if tunnel is not None:
+            try:
+                tunnel.stop()
+            except Exception:
+                pass

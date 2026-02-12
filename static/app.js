@@ -33,6 +33,15 @@ const dsFormTest = document.getElementById("ds-form-test");
 const dsFormTestResult = document.getElementById("ds-form-test-result");
 const dsFormCancel = document.getElementById("ds-form-cancel");
 const dsFormSave = document.getElementById("ds-form-save");
+// SSH fields (may be null if HTML is cached without them)
+const dsFormUseSsh = document.getElementById("ds-form-use-ssh");
+const dsFormSshFields = document.getElementById("ds-ssh-fields");
+const dsFormSshHint = document.getElementById("ds-ssh-hint");
+const dsFormSshHost = document.getElementById("ds-form-ssh-host");
+const dsFormSshPort = document.getElementById("ds-form-ssh-port");
+const dsFormSshUser = document.getElementById("ds-form-ssh-user");
+const dsFormSshKey = document.getElementById("ds-form-ssh-key");
+const dsFormSshPassword = document.getElementById("ds-form-ssh-password");
 
 // ── Help ──
 const _helpHtml = `
@@ -187,6 +196,8 @@ async function loadDataSources() {
     if (active) {
       dsIndicator.textContent = active.name;
       dsIndicator.title = active.host + ":" + active.port + "/" + active.dbname + " (" + active.schema + ")";
+    } else {
+      dsIndicator.textContent = "No source";
     }
   } catch (err) {
     dsList.innerHTML = '<div class="ds-error">Failed to load data sources</div>';
@@ -203,7 +214,9 @@ function renderDataSourceList(sources) {
     html += '<div class="ds-item-name">' + escapeHtml(s.name);
     if (s.is_active) html += ' <span class="ds-active-badge">Active</span>';
     html += "</div>";
-    html += '<div class="ds-item-detail">' + escapeHtml(s.host + ":" + s.port + "/" + s.dbname) + " &middot; " + escapeHtml(s.schema) + "</div>";
+    let detail = escapeHtml(s.host + ":" + s.port + "/" + s.dbname);
+    if (s.use_ssh) detail += ' <span class="ds-ssh-badge">via SSH</span>';
+    html += '<div class="ds-item-detail">' + detail + " &middot; " + escapeHtml(s.schema) + "</div>";
     if (s.description) html += '<div class="ds-item-detail">' + escapeHtml(s.description) + "</div>";
     html += "</div>";
 
@@ -237,6 +250,21 @@ dsAddBtn.addEventListener("click", () => {
   openAddForm();
 });
 
+function _getSshChecked() {
+  return dsFormUseSsh ? dsFormUseSsh.checked : false;
+}
+
+function _setSshVisible(visible) {
+  if (dsFormSshFields) {
+    if (visible) dsFormSshFields.classList.remove("hidden");
+    else dsFormSshFields.classList.add("hidden");
+  }
+  if (dsFormSshHint) {
+    if (visible) dsFormSshHint.classList.remove("hidden");
+    else dsFormSshHint.classList.add("hidden");
+  }
+}
+
 function openAddForm() {
   dsFormTitle.textContent = "Add Data Source";
   dsFormId.value = "";
@@ -248,6 +276,14 @@ function openAddForm() {
   dsFormPassword.value = "";
   dsFormSchema.value = "cdm_synthea";
   dsFormDesc.value = "";
+  // SSH defaults
+  if (dsFormUseSsh) dsFormUseSsh.checked = false;
+  _setSshVisible(false);
+  if (dsFormSshHost) dsFormSshHost.value = "";
+  if (dsFormSshPort) dsFormSshPort.value = "22";
+  if (dsFormSshUser) dsFormSshUser.value = "";
+  if (dsFormSshKey) dsFormSshKey.value = "";
+  if (dsFormSshPassword) dsFormSshPassword.value = "";
   dsFormTestResult.textContent = "";
   dsFormContainer.classList.remove("hidden");
 }
@@ -265,6 +301,14 @@ function openEditForm(id, sources) {
   dsFormPassword.value = "";  // don't prefill masked password
   dsFormSchema.value = s.schema;
   dsFormDesc.value = s.description;
+  // SSH fields
+  if (dsFormUseSsh) dsFormUseSsh.checked = s.use_ssh || false;
+  _setSshVisible(s.use_ssh || false);
+  if (dsFormSshHost) dsFormSshHost.value = s.ssh_host || "";
+  if (dsFormSshPort) dsFormSshPort.value = s.ssh_port || 22;
+  if (dsFormSshUser) dsFormSshUser.value = s.ssh_user || "";
+  if (dsFormSshKey) dsFormSshKey.value = s.ssh_key_path || "";
+  if (dsFormSshPassword) dsFormSshPassword.value = "";  // don't prefill masked password
   dsFormTestResult.textContent = "";
   dsFormContainer.classList.remove("hidden");
 }
@@ -283,6 +327,12 @@ dsFormSave.addEventListener("click", async () => {
     password: dsFormPassword.value,
     schema: dsFormSchema.value.trim() || "cdm_synthea",
     description: dsFormDesc.value.trim(),
+    use_ssh: _getSshChecked(),
+    ssh_host: dsFormSshHost ? dsFormSshHost.value.trim() : "",
+    ssh_port: dsFormSshPort ? (parseInt(dsFormSshPort.value) || 22) : 22,
+    ssh_user: dsFormSshUser ? dsFormSshUser.value.trim() : "",
+    ssh_key_path: dsFormSshKey ? dsFormSshKey.value.trim() : "",
+    ssh_password: dsFormSshPassword ? dsFormSshPassword.value : "",
   };
 
   if (!payload.name) {
@@ -329,17 +379,24 @@ dsFormTest.addEventListener("click", async () => {
   dsFormTestResult.textContent = "Testing...";
   dsFormTestResult.className = "ds-test-result";
   try {
+    const body = {
+      host: dsFormHost.value.trim(),
+      port: parseInt(dsFormPort.value) || 5432,
+      dbname: dsFormDbname.value.trim(),
+      user: dsFormUser.value.trim(),
+      password: dsFormPassword.value,
+      schema: dsFormSchema.value.trim() || "cdm_synthea",
+      use_ssh: _getSshChecked(),
+      ssh_host: dsFormSshHost ? dsFormSshHost.value.trim() : "",
+      ssh_port: dsFormSshPort ? (parseInt(dsFormSshPort.value) || 22) : 22,
+      ssh_user: dsFormSshUser ? dsFormSshUser.value.trim() : "",
+      ssh_key_path: dsFormSshKey ? dsFormSshKey.value.trim() : "",
+      ssh_password: dsFormSshPassword ? dsFormSshPassword.value : "",
+    };
     const resp = await fetch("/api/datasources/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: dsFormHost.value.trim(),
-        port: parseInt(dsFormPort.value) || 5432,
-        dbname: dsFormDbname.value.trim(),
-        user: dsFormUser.value.trim(),
-        password: dsFormPassword.value,
-        schema: dsFormSchema.value.trim() || "cdm_synthea",
-      }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     dsFormTestResult.textContent = data.message;
@@ -352,20 +409,68 @@ dsFormTest.addEventListener("click", async () => {
   }
 });
 
+// SSH toggle — guarded in case elements are missing from cached HTML
+if (dsFormUseSsh) {
+  dsFormUseSsh.addEventListener("change", () => {
+    _setSshVisible(dsFormUseSsh.checked);
+  });
+}
+
 async function activateDataSource(id) {
-  // Show loading in indicator
-  dsIndicator.textContent = "Switching...";
+  // Disable all activate buttons and show progress
+  const activateBtn = dsList.querySelector('[data-action="activate"][data-id="' + id + '"]');
+  if (activateBtn) {
+    activateBtn.disabled = true;
+    activateBtn.textContent = "Connecting...";
+  }
+  dsIndicator.textContent = "Connecting...";
+
   try {
     const resp = await fetch("/api/datasources/" + id + "/activate", { method: "PUT" });
     if (!resp.ok) {
       const err = await resp.json();
       alert("Activate failed: " + (err.detail || "Unknown error"));
+      if (activateBtn) {
+        activateBtn.disabled = false;
+        activateBtn.textContent = "Activate";
+      }
+      dsIndicator.textContent = "Not connected";
       return;
     }
     await loadDataSources();
+    // Start polling for concept catalog loading status
+    pollCatalogStatus();
   } catch (err) {
     alert("Network error switching data source");
+    if (activateBtn) {
+      activateBtn.disabled = false;
+      activateBtn.textContent = "Activate";
+    }
+    dsIndicator.textContent = "Not connected";
   }
+}
+
+function pollCatalogStatus() {
+  // Show "loading catalog" hint next to the data source indicator
+  dsIndicator.title = "Loading concept catalog...";
+  const baseText = dsIndicator.textContent;
+
+  const interval = setInterval(async () => {
+    try {
+      const resp = await fetch("/api/catalog-status");
+      const data = await resp.json();
+      if (data.status === "ready") {
+        clearInterval(interval);
+        dsIndicator.title = "Concept catalog loaded";
+      } else if (data.status.startsWith("error:")) {
+        clearInterval(interval);
+        dsIndicator.title = "Catalog load failed: " + data.status.slice(6);
+      }
+      // Keep polling if "loading"
+    } catch {
+      clearInterval(interval);
+    }
+  }, 3000);
 }
 
 async function deleteDataSource(id) {
