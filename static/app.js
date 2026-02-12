@@ -15,6 +15,24 @@ const modelSelect = document.getElementById("model-select");
 const customModelInput = document.getElementById("custom-model");
 const customModelBtn = document.getElementById("custom-model-btn");
 const helpBtn = document.getElementById("help-btn");
+const dsIndicator = document.getElementById("ds-indicator");
+const dsList = document.getElementById("ds-list");
+const dsAddBtn = document.getElementById("ds-add-btn");
+const dsFormContainer = document.getElementById("ds-form-container");
+const dsFormTitle = document.getElementById("ds-form-title");
+const dsFormId = document.getElementById("ds-form-id");
+const dsFormName = document.getElementById("ds-form-name");
+const dsFormHost = document.getElementById("ds-form-host");
+const dsFormPort = document.getElementById("ds-form-port");
+const dsFormDbname = document.getElementById("ds-form-dbname");
+const dsFormUser = document.getElementById("ds-form-user");
+const dsFormPassword = document.getElementById("ds-form-password");
+const dsFormSchema = document.getElementById("ds-form-schema");
+const dsFormDesc = document.getElementById("ds-form-desc");
+const dsFormTest = document.getElementById("ds-form-test");
+const dsFormTestResult = document.getElementById("ds-form-test-result");
+const dsFormCancel = document.getElementById("ds-form-cancel");
+const dsFormSave = document.getElementById("ds-form-save");
 
 // ── Help ──
 const _helpHtml = `
@@ -78,14 +96,19 @@ showHelp();
 // ── Settings ──
 settingsBtn.addEventListener("click", () => {
   settingsOverlay.classList.remove("hidden");
+  loadDataSources();
 });
 
 settingsClose.addEventListener("click", () => {
   settingsOverlay.classList.add("hidden");
+  dsFormContainer.classList.add("hidden");
 });
 
 settingsOverlay.addEventListener("click", (e) => {
-  if (e.target === settingsOverlay) settingsOverlay.classList.add("hidden");
+  if (e.target === settingsOverlay) {
+    settingsOverlay.classList.add("hidden");
+    dsFormContainer.classList.add("hidden");
+  }
 });
 
 modelSelect.addEventListener("change", () => {
@@ -151,6 +174,217 @@ async function loadSettings() {
 }
 
 loadSettings();
+
+// ── Data Sources ──
+
+async function loadDataSources() {
+  try {
+    const resp = await fetch("/api/datasources");
+    const sources = await resp.json();
+    renderDataSourceList(sources);
+    // Update header indicator
+    const active = sources.find((s) => s.is_active);
+    if (active) {
+      dsIndicator.textContent = active.name;
+      dsIndicator.title = active.host + ":" + active.port + "/" + active.dbname + " (" + active.schema + ")";
+    }
+  } catch (err) {
+    dsList.innerHTML = '<div class="ds-error">Failed to load data sources</div>';
+  }
+}
+
+function renderDataSourceList(sources) {
+  dsList.innerHTML = "";
+  for (const s of sources) {
+    const item = document.createElement("div");
+    item.className = "ds-item" + (s.is_active ? " ds-active" : "");
+
+    let html = '<div class="ds-item-info">';
+    html += '<div class="ds-item-name">' + escapeHtml(s.name);
+    if (s.is_active) html += ' <span class="ds-active-badge">Active</span>';
+    html += "</div>";
+    html += '<div class="ds-item-detail">' + escapeHtml(s.host + ":" + s.port + "/" + s.dbname) + " &middot; " + escapeHtml(s.schema) + "</div>";
+    if (s.description) html += '<div class="ds-item-detail">' + escapeHtml(s.description) + "</div>";
+    html += "</div>";
+
+    html += '<div class="ds-item-actions">';
+    if (!s.is_active) {
+      html += '<button class="ds-btn ds-btn-primary ds-btn-sm" data-action="activate" data-id="' + s.id + '">Activate</button>';
+    }
+    html += '<button class="ds-btn ds-btn-secondary ds-btn-sm" data-action="edit" data-id="' + s.id + '">Edit</button>';
+    if (!s.is_active) {
+      html += '<button class="ds-btn ds-btn-danger ds-btn-sm" data-action="delete" data-id="' + s.id + '">Delete</button>';
+    }
+    html += "</div>";
+
+    item.innerHTML = html;
+    dsList.appendChild(item);
+  }
+
+  // Wire up action buttons
+  dsList.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (action === "activate") activateDataSource(id);
+      else if (action === "edit") openEditForm(id, sources);
+      else if (action === "delete") deleteDataSource(id);
+    });
+  });
+}
+
+dsAddBtn.addEventListener("click", () => {
+  openAddForm();
+});
+
+function openAddForm() {
+  dsFormTitle.textContent = "Add Data Source";
+  dsFormId.value = "";
+  dsFormName.value = "";
+  dsFormHost.value = "localhost";
+  dsFormPort.value = "5432";
+  dsFormDbname.value = "";
+  dsFormUser.value = "";
+  dsFormPassword.value = "";
+  dsFormSchema.value = "cdm_synthea";
+  dsFormDesc.value = "";
+  dsFormTestResult.textContent = "";
+  dsFormContainer.classList.remove("hidden");
+}
+
+function openEditForm(id, sources) {
+  const s = sources.find((x) => x.id === id);
+  if (!s) return;
+  dsFormTitle.textContent = "Edit Data Source";
+  dsFormId.value = s.id;
+  dsFormName.value = s.name;
+  dsFormHost.value = s.host;
+  dsFormPort.value = s.port;
+  dsFormDbname.value = s.dbname;
+  dsFormUser.value = s.user;
+  dsFormPassword.value = "";  // don't prefill masked password
+  dsFormSchema.value = s.schema;
+  dsFormDesc.value = s.description;
+  dsFormTestResult.textContent = "";
+  dsFormContainer.classList.remove("hidden");
+}
+
+dsFormCancel.addEventListener("click", () => {
+  dsFormContainer.classList.add("hidden");
+});
+
+dsFormSave.addEventListener("click", async () => {
+  const payload = {
+    name: dsFormName.value.trim(),
+    host: dsFormHost.value.trim(),
+    port: parseInt(dsFormPort.value) || 5432,
+    dbname: dsFormDbname.value.trim(),
+    user: dsFormUser.value.trim(),
+    password: dsFormPassword.value,
+    schema: dsFormSchema.value.trim() || "cdm_synthea",
+    description: dsFormDesc.value.trim(),
+  };
+
+  if (!payload.name) {
+    dsFormTestResult.textContent = "Name is required.";
+    dsFormTestResult.className = "ds-test-result ds-test-fail";
+    return;
+  }
+
+  const id = dsFormId.value;
+  try {
+    dsFormSave.disabled = true;
+    let resp;
+    if (id) {
+      resp = await fetch("/api/datasources/" + id, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      resp = await fetch("/api/datasources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    if (!resp.ok) {
+      const err = await resp.json();
+      dsFormTestResult.textContent = err.detail || "Save failed";
+      dsFormTestResult.className = "ds-test-result ds-test-fail";
+      return;
+    }
+    dsFormContainer.classList.add("hidden");
+    await loadDataSources();
+  } catch (err) {
+    dsFormTestResult.textContent = "Network error";
+    dsFormTestResult.className = "ds-test-result ds-test-fail";
+  } finally {
+    dsFormSave.disabled = false;
+  }
+});
+
+dsFormTest.addEventListener("click", async () => {
+  dsFormTest.disabled = true;
+  dsFormTestResult.textContent = "Testing...";
+  dsFormTestResult.className = "ds-test-result";
+  try {
+    const resp = await fetch("/api/datasources/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        host: dsFormHost.value.trim(),
+        port: parseInt(dsFormPort.value) || 5432,
+        dbname: dsFormDbname.value.trim(),
+        user: dsFormUser.value.trim(),
+        password: dsFormPassword.value,
+        schema: dsFormSchema.value.trim() || "cdm_synthea",
+      }),
+    });
+    const data = await resp.json();
+    dsFormTestResult.textContent = data.message;
+    dsFormTestResult.className = "ds-test-result " + (data.ok ? "ds-test-ok" : "ds-test-fail");
+  } catch (err) {
+    dsFormTestResult.textContent = "Network error";
+    dsFormTestResult.className = "ds-test-result ds-test-fail";
+  } finally {
+    dsFormTest.disabled = false;
+  }
+});
+
+async function activateDataSource(id) {
+  // Show loading in indicator
+  dsIndicator.textContent = "Switching...";
+  try {
+    const resp = await fetch("/api/datasources/" + id + "/activate", { method: "PUT" });
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert("Activate failed: " + (err.detail || "Unknown error"));
+      return;
+    }
+    await loadDataSources();
+  } catch (err) {
+    alert("Network error switching data source");
+  }
+}
+
+async function deleteDataSource(id) {
+  if (!confirm("Delete this data source?")) return;
+  try {
+    const resp = await fetch("/api/datasources/" + id, { method: "DELETE" });
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert("Delete failed: " + (err.detail || "Unknown error"));
+      return;
+    }
+    await loadDataSources();
+  } catch (err) {
+    alert("Network error deleting data source");
+  }
+}
+
+// Load data sources on page load to set the header indicator
+loadDataSources();
 
 // ── Tab switching ──
 document.querySelectorAll(".tab").forEach((tab) => {

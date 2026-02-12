@@ -791,3 +791,258 @@ header .subtitle {
   border-radius: 50%;
   border: 1.5px solid var(--border);
 }
+
+/* ── Data source indicator (header) ── */
+.ds-indicator {
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  padding: 0.2rem 0.5rem;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 4px;
+  color: #065f46;
+  cursor: default;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Settings panel wider for data sources ── */
+.settings-panel {
+  width: 540px;
+}
+
+.settings-section h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.settings-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+/* ── Data source list ── */
+.ds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.ds-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  gap: 0.5rem;
+}
+
+.ds-item.ds-active {
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+}
+
+.ds-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ds-active-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #065f46;
+  color: #fff;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+  margin-left: 0.35rem;
+}
+
+.ds-item-detail {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-item-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+/* ── Data source buttons ── */
+.ds-btn {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ds-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ds-btn-sm {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+}
+
+.ds-btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.ds-btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.ds-btn-secondary {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.ds-btn-secondary:hover {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.ds-btn-danger {
+  background: var(--surface);
+  color: var(--error-text);
+  border-color: #fca5a5;
+}
+
+.ds-btn-danger:hover {
+  background: var(--error-bg);
+}
+
+.ds-add-btn {
+  display: block;
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+
+.ds-add-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(37, 99, 235, 0.04);
+}
+
+/* ── Data source form ── */
+.ds-form-container {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  background: var(--code-bg);
+}
+
+.ds-form-container.hidden {
+  display: none;
+}
+
+.ds-form-container h3 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.ds-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.ds-form-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  gap: 0.15rem;
+}
+
+.ds-form-grid input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: var(--mono);
+  outline: none;
+  background: var(--surface);
+}
+
+.ds-form-grid input:focus {
+  border-color: var(--primary);
+}
+
+.ds-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.ds-form-right {
+  margin-left: auto;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.ds-test-result {
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-test-ok {
+  color: #065f46;
+}
+
+.ds-test-fail {
+  color: var(--error-text);
+}
+
+.ds-error {
+  font-size: 0.82rem;
+  color: var(--error-text);
+  padding: 0.5rem;
+}

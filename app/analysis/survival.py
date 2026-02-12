@@ -11,11 +11,10 @@ from app.analysis.models import AnalysisResult
 
 log = logging.getLogger(__name__)
 
-_SCHEMA = "cdm_synthea"
-
 
 @register("survival")
 async def survival_analysis(params: dict) -> AnalysisResult:
+    schema = db.get_schema()
     cohort_ids = params.get("cohort_concept_ids", [])
     time_horizon_years = params.get("time_horizon_years", 5)
     time_horizon_days = time_horizon_years * 365
@@ -32,8 +31,8 @@ async def survival_analysis(params: dict) -> AnalysisResult:
     cohort_sql = f"""
         SELECT co.person_id,
                MIN(co.condition_start_date) AS index_date
-        FROM {_SCHEMA}.condition_occurrence co
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.condition_occurrence co
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = co.condition_concept_id
         WHERE ca.ancestor_concept_id IN ({id_list})
         GROUP BY co.person_id
@@ -44,8 +43,8 @@ async def survival_analysis(params: dict) -> AnalysisResult:
     drug_cohort_sql = f"""
         SELECT de.person_id,
                MIN(de.drug_era_start_date) AS index_date
-        FROM {_SCHEMA}.drug_era de
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.drug_era de
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = de.drug_concept_id
         WHERE ca.ancestor_concept_id IN ({id_list})
         GROUP BY de.person_id
@@ -72,7 +71,7 @@ async def survival_analysis(params: dict) -> AnalysisResult:
     # Query 2: Get death dates
     death_sql = f"""
         SELECT person_id, death_date
-        FROM {_SCHEMA}.death
+        FROM {schema}.death
         WHERE person_id IN ({pid_list})
     """
     queries_used.append(death_sql.strip())
@@ -82,7 +81,7 @@ async def survival_analysis(params: dict) -> AnalysisResult:
     # Query 3: Get observation period end for censoring
     obs_sql = f"""
         SELECT person_id, MAX(observation_period_end_date) AS end_date
-        FROM {_SCHEMA}.observation_period
+        FROM {schema}.observation_period
         WHERE person_id IN ({pid_list})
         GROUP BY person_id
     """

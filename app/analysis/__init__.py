@@ -33,7 +33,8 @@ async def resolve_label(concept_ids: list[int], fallback: str = "Unknown") -> st
     from app import db, llm
 
     id_list = ", ".join(str(i) for i in concept_ids)
-    sql = f"SELECT concept_name FROM cdm_synthea.concept WHERE concept_id IN ({id_list}) ORDER BY concept_id LIMIT 10"
+    schema = db.get_schema()
+    sql = f"SELECT concept_name FROM {schema}.concept WHERE concept_id IN ({id_list}) ORDER BY concept_id LIMIT 10"
     rows = await db.execute_query(sql)
     names = [r["concept_name"] for r in rows]
     if not names:

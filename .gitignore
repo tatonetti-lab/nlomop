@@ -1,4 +1,5 @@
 .env
+data_sources.json
 __pycache__/
 *.egg-info/
 .venv/

@@ -11,11 +11,10 @@ from app.analysis.models import AnalysisResult
 
 log = logging.getLogger(__name__)
 
-_SCHEMA = "cdm_synthea"
-
 
 @register("odds_ratio")
 async def odds_ratio_analysis(params: dict) -> AnalysisResult:
+    schema = db.get_schema()
     exposure_ids = params.get("exposure_concept_ids", [])
     outcome_ids = params.get("outcome_concept_ids", [])
 
@@ -38,19 +37,19 @@ async def odds_ratio_analysis(params: dict) -> AnalysisResult:
     # outcome = has condition matching outcome_ids
     contingency_sql = f"""
         WITH total_patients AS (
-            SELECT DISTINCT person_id FROM {_SCHEMA}.person
+            SELECT DISTINCT person_id FROM {schema}.person
         ),
         exposed AS (
             SELECT DISTINCT co.person_id
-            FROM {_SCHEMA}.condition_occurrence co
-            JOIN {_SCHEMA}.concept_ancestor ca
+            FROM {schema}.condition_occurrence co
+            JOIN {schema}.concept_ancestor ca
               ON ca.descendant_concept_id = co.condition_concept_id
             WHERE ca.ancestor_concept_id IN ({exposure_list})
         ),
         outcome AS (
             SELECT DISTINCT co.person_id
-            FROM {_SCHEMA}.condition_occurrence co
-            JOIN {_SCHEMA}.concept_ancestor ca
+            FROM {schema}.condition_occurrence co
+            JOIN {schema}.concept_ancestor ca
               ON ca.descendant_concept_id = co.condition_concept_id
             WHERE ca.ancestor_concept_id IN ({outcome_list})
         )

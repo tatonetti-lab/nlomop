@@ -12,11 +12,10 @@ from app.analysis.models import AnalysisResult
 
 log = logging.getLogger(__name__)
 
-_SCHEMA = "cdm_synthea"
-
 
 @register("pre_post")
 async def pre_post_analysis(params: dict) -> AnalysisResult:
+    schema = db.get_schema()
     drug_ids = params.get("drug_concept_ids", [])
     meas_ids = params.get("measurement_concept_ids", [])
     window_days = params.get("window_days", 30)
@@ -34,8 +33,8 @@ async def pre_post_analysis(params: dict) -> AnalysisResult:
     # Query 1: First drug exposure per patient (using drug_era for ingredient-level)
     drug_sql = f"""
         SELECT person_id, MIN(drug_era_start_date) AS first_drug_date
-        FROM {_SCHEMA}.drug_era
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.drug_era
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = drug_concept_id
         WHERE ca.ancestor_concept_id IN ({drug_list})
         GROUP BY person_id
@@ -55,8 +54,8 @@ async def pre_post_analysis(params: dict) -> AnalysisResult:
         SELECT m.person_id,
                m.value_as_number AS value,
                m.measurement_date
-        FROM {_SCHEMA}.measurement m
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.measurement m
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = m.measurement_concept_id
         WHERE ca.ancestor_concept_id IN ({meas_list})
           AND m.person_id IN ({pid_list})

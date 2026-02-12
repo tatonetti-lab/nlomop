@@ -9,18 +9,22 @@ from app.config import settings
 log = logging.getLogger(__name__)
 
 _pool: AsyncConnectionPool | None = None
+_active_schema: str = settings.db.schema_
 
 
-async def open_pool() -> None:
-    global _pool
+async def open_pool(conninfo: str | None = None, schema: str | None = None) -> None:
+    """Open a connection pool. Uses .env defaults if no args provided."""
+    global _pool, _active_schema
     _pool = AsyncConnectionPool(
-        conninfo=settings.db.conninfo,
+        conninfo=conninfo or settings.db.conninfo,
         min_size=1,
         max_size=5,
         open=False,
     )
     await _pool.open()
-    log.info("Database pool opened")
+    if schema:
+        _active_schema = schema
+    log.info("Database pool opened (schema=%s)", _active_schema)
 
 
 async def close_pool() -> None:
@@ -29,6 +33,17 @@ async def close_pool() -> None:
         await _pool.close()
         _pool = None
         log.info("Database pool closed")
+
+
+async def switch_source(conninfo: str, schema: str) -> None:
+    """Close current pool and open a new one for a different data source."""
+    await close_pool()
+    await open_pool(conninfo=conninfo, schema=schema)
+
+
+def get_schema() -> str:
+    """Return the active source's schema name."""
+    return _active_schema
 
 
 def _get_pool() -> AsyncConnectionPool:
@@ -41,7 +56,7 @@ async def execute_query(sql: str) -> list[dict[str, Any]]:
     """Execute a read-only SQL query with timeout. Returns list of row dicts."""
     pool = _get_pool()
     timeout_s = settings.db.query_timeout_s
-    schema = settings.db.schema_
+    schema = _active_schema
 
     async with pool.connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
@@ -56,7 +71,7 @@ async def execute_query(sql: str) -> list[dict[str, Any]]:
 async def fetch_concept_catalog() -> list[dict[str, Any]]:
     """Fetch all distinct concept IDs actually used in clinical tables."""
     pool = _get_pool()
-    schema = settings.db.schema_
+    schema = _active_schema
 
     queries = {
         "Condition": f"""
@@ -121,7 +136,7 @@ async def fetch_concept_catalog() -> list[dict[str, Any]]:
 async def search_concepts(term: str, limit: int = 20) -> list[dict[str, Any]]:
     """Search the concept table by name for fallback concept resolution."""
     pool = _get_pool()
-    schema = settings.db.schema_
+    schema = _active_schema
 
     sql = f"""
         SELECT concept_id, concept_name, domain_id, vocabulary_id, concept_class_id
@@ -137,3 +152,21 @@ async def search_concepts(term: str, limit: int = 20) -> list[dict[str, Any]]:
             await cur.execute(sql, (f"%{term}%", limit))
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
+
+
+async def test_connection(conninfo: str, schema: str) -> tuple[bool, str]:
+    """Test a database connection. Returns (success, message)."""
+    import psycopg
+
+    try:
+        async with await psycopg.AsyncConnection.connect(conninfo) as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(f"SET search_path TO {schema}")
+                await cur.execute(
+                    f"SELECT COUNT(*) AS n FROM {schema}.person LIMIT 1"
+                )
+                row = await cur.fetchone()
+                n = row["n"] if row else 0
+                return True, f"Connected. {n:,} patients in {schema}.person."
+    except Exception as e:
+        return False, str(e)

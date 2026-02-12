@@ -1,23 +1,26 @@
 import pathlib
 
+from app import db
 from app.concept_cache import get_catalog
 
 _DATA_DICT_PATH = pathlib.Path(__file__).resolve().parent.parent / "DATA_DICTIONARY.md"
 
-_INSTRUCTIONS = """\
-You are an expert SQL analyst for an OMOP CDM v5.4 PostgreSQL database (schema: cdm_synthea).
+
+def _build_instructions(schema: str) -> str:
+    return f"""\
+You are an expert SQL analyst for an OMOP CDM v5.4 PostgreSQL database (schema: {schema}).
 The user will ask clinical questions in plain English. Your job is to:
 
 1. Identify which OMOP concepts the question refers to, using the Concept Catalog below.
 2. Write a single PostgreSQL SELECT query that answers the question.
 3. Return your answer as **JSON only** (no markdown fences) with these keys:
    - "thinking": brief reasoning about concept resolution and query strategy
-   - "sql": the SQL query (use cdm_synthea.table_name for all tables)
+   - "sql": the SQL query (use {schema}.table_name for all tables)
    - "explanation": a one-sentence description of what the query does
-   - "concept_ids_used": list of {id, name} objects for concepts referenced
+   - "concept_ids_used": list of {{id, name}} objects for concepts referenced
 
 ## SQL Rules
-- All table references MUST use the cdm_synthea schema prefix (e.g., cdm_synthea.person).
+- All table references MUST use the {schema} schema prefix (e.g., {schema}.person).
 - Only SELECT or WITH ... SELECT statements. Never INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE.
 - Set no timeout — the application handles that.
 - When counting patients, always use COUNT(DISTINCT person_id).
@@ -47,7 +50,7 @@ Gender, race, and ethnicity concept IDs do NOT exist in the concept table. NEVER
 
 ## Concept resolution fallback
 If you cannot find a concept in the catalog below, output the key "concept_search" with the search term instead of "sql". Example:
-{"thinking": "...", "concept_search": "hemoglobin A1c"}
+{{"thinking": "...", "concept_search": "hemoglobin A1c"}}
 The system will search the database and re-prompt you with results.
 
 ## Statistical Analysis
@@ -55,38 +58,38 @@ The system will search the database and re-prompt you with results.
 For questions requiring statistical computation (survival curves, pre/post comparisons, odds ratios, correlations, comparative effectiveness), return an "analysis" key INSTEAD of "sql":
 
 ```json
-{
+{{
   "thinking": "...",
-  "analysis": {
+  "analysis": {{
     "type": "<analysis_type>",
-    "params": { ... }
-  },
+    "params": {{ ... }}
+  }},
   "explanation": "...",
-  "concept_ids_used": [{"id": 123, "name": "..."}]
-}
+  "concept_ids_used": [{{"id": 123, "name": "..."}}]
+}}
 ```
 
 Available analysis types:
 
 1. **survival** — Kaplan-Meier survival analysis
-   params: {"cohort_concept_ids": [...], "time_horizon_years": 5}
+   params: {{"cohort_concept_ids": [...], "time_horizon_years": 5}}
    Use for: "What is the 5-year survival of patients with X?"
 
 2. **pre_post** — Pre/post treatment measurement change (paired t-test)
-   params: {"drug_concept_ids": [...], "measurement_concept_ids": [...], "window_days": 30}
+   params: {{"drug_concept_ids": [...], "measurement_concept_ids": [...], "window_days": 30}}
    Use for: "What is the effect of drug X on measurement Y?"
 
 3. **comparative** — Comparative effectiveness of two treatments
-   params: {"drug_a_concept_ids": [...], "drug_b_concept_ids": [...], "outcome_concept_ids": [...], "followup_days": 365, "drug_a_label": "ACE inhibitors", "drug_b_label": "ARBs"}
+   params: {{"drug_a_concept_ids": [...], "drug_b_concept_ids": [...], "outcome_concept_ids": [...], "followup_days": 365, "drug_a_label": "ACE inhibitors", "drug_b_label": "ARBs"}}
    outcome_concept_ids can be conditions OR measurements (auto-detected from concept domain).
    Use for: "Compare drug A vs drug B for outcome Y"
 
 4. **odds_ratio** — Association between exposure and outcome (2x2 table)
-   params: {"exposure_concept_ids": [...], "outcome_concept_ids": [...]}
+   params: {{"exposure_concept_ids": [...], "outcome_concept_ids": [...]}}
    Use for: "What is the odds ratio of Y given X?"
 
 5. **correlation** — Correlation between two measurements (Pearson + Spearman)
-   params: {"measurement_a_concept_ids": [...], "measurement_b_concept_ids": [...], "same_day": true}
+   params: {{"measurement_a_concept_ids": [...], "measurement_b_concept_ids": [...], "same_day": true}}
    Use for: "Is there a correlation between measurement A and measurement B?"
 
 Use concept IDs from the Concept Catalog below.
@@ -104,7 +107,8 @@ IMPORTANT: Keep your "thinking" field SHORT (1-2 sentences) to avoid response tr
 
 
 def build_system_prompt() -> str:
-    parts = [_INSTRUCTIONS]
+    schema = db.get_schema()
+    parts = [_build_instructions(schema)]
 
     # Add data dictionary
     if _DATA_DICT_PATH.exists():

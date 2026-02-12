@@ -11,11 +11,10 @@ from app.analysis.models import AnalysisResult
 
 log = logging.getLogger(__name__)
 
-_SCHEMA = "cdm_synthea"
-
 
 @register("comparative")
 async def comparative_analysis(params: dict) -> AnalysisResult:
+    schema = db.get_schema()
     drug_a_ids = params.get("drug_a_concept_ids", [])
     drug_b_ids = params.get("drug_b_concept_ids", [])
     outcome_ids = params.get("outcome_concept_ids", [])
@@ -42,8 +41,8 @@ async def comparative_analysis(params: dict) -> AnalysisResult:
     # Query 1: Cohort A — first drug era start
     cohort_a_sql = f"""
         SELECT de.person_id, MIN(de.drug_era_start_date) AS index_date
-        FROM {_SCHEMA}.drug_era de
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.drug_era de
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = de.drug_concept_id
         WHERE ca.ancestor_concept_id IN ({drug_a_list})
         GROUP BY de.person_id
@@ -57,8 +56,8 @@ async def comparative_analysis(params: dict) -> AnalysisResult:
     # Query 2: Cohort B — first drug era start
     cohort_b_sql = f"""
         SELECT de.person_id, MIN(de.drug_era_start_date) AS index_date
-        FROM {_SCHEMA}.drug_era de
-        JOIN {_SCHEMA}.concept_ancestor ca
+        FROM {schema}.drug_era de
+        JOIN {schema}.concept_ancestor ca
           ON ca.descendant_concept_id = de.drug_concept_id
         WHERE ca.ancestor_concept_id IN ({drug_b_list})
         GROUP BY de.person_id
@@ -91,7 +90,7 @@ async def comparative_analysis(params: dict) -> AnalysisResult:
     # Determine outcome domain: condition or measurement
     if outcome_domain == "auto":
         domain_sql = f"""
-            SELECT domain_id FROM {_SCHEMA}.concept
+            SELECT domain_id FROM {schema}.concept
             WHERE concept_id IN ({outcome_list}) LIMIT 1
         """
         domain_rows = await db.execute_query(domain_sql)
@@ -101,8 +100,8 @@ async def comparative_analysis(params: dict) -> AnalysisResult:
         # Measurement-based: compare mean values within followup per cohort
         meas_sql = f"""
             SELECT m.person_id, AVG(m.value_as_number) AS avg_value
-            FROM {_SCHEMA}.measurement m
-            JOIN {_SCHEMA}.concept_ancestor ca
+            FROM {schema}.measurement m
+            JOIN {schema}.concept_ancestor ca
               ON ca.descendant_concept_id = m.measurement_concept_id
             WHERE ca.ancestor_concept_id IN ({outcome_list})
               AND m.person_id IN ({pid_list})
@@ -149,8 +148,8 @@ async def comparative_analysis(params: dict) -> AnalysisResult:
         # Condition-based: event rate comparison
         outcome_sql = f"""
             SELECT co.person_id, MIN(co.condition_start_date) AS outcome_date
-            FROM {_SCHEMA}.condition_occurrence co
-            JOIN {_SCHEMA}.concept_ancestor ca
+            FROM {schema}.condition_occurrence co
+            JOIN {schema}.concept_ancestor ca
               ON ca.descendant_concept_id = co.condition_concept_id
             WHERE ca.ancestor_concept_id IN ({outcome_list})
               AND co.person_id IN ({pid_list})
