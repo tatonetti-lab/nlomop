@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import agent, db, llm
+from app.config import settings
 from app.concept_cache import build_catalog_text, set_catalog
 from app.datasources import (
     DataSource,
@@ -187,6 +188,21 @@ async def query(req: QueryRequest):
     return await agent.answer(req.question)
 
 
+@app.post("/api/query/execute")
+async def execute_query(req: SqlRequest):
+    """Execute SQL from the preflight phase. Called after user sees warnings."""
+    if not db.is_pool_ready():
+        return {"columns": [], "rows": [], "row_count": 0, "error": "No database connected", "elapsed_s": 0}
+    return await agent.execute(req.sql)
+
+
+@app.post("/api/query/cancel")
+async def cancel_query():
+    """Cancel the currently running query."""
+    cancelled = await db.cancel_query()
+    return {"cancelled": cancelled}
+
+
 @app.post("/api/sql")
 async def run_sql(req: SqlRequest):
     """Execute raw SQL for the SQL IDE panel (read-only, same safety as /api/query)."""
@@ -218,6 +234,7 @@ async def get_settings():
     return {
         "current_model": llm.get_deployment(),
         "available_models": llm.AVAILABLE_MODELS,
+        "query_timeout_s": settings.db.query_timeout_s,
     }
 
 
@@ -229,6 +246,17 @@ class SetModelRequest(BaseModel):
 async def set_model(req: SetModelRequest):
     llm.set_deployment(req.model)
     return {"current_model": llm.get_deployment()}
+
+
+class SetTimeoutRequest(BaseModel):
+    timeout_s: int
+
+
+@app.put("/api/settings/timeout")
+async def set_timeout(req: SetTimeoutRequest):
+    clamped = max(10, min(300, req.timeout_s))
+    settings.db.query_timeout_s = clamped
+    return {"query_timeout_s": clamped}
 
 
 # ── Data source API routes ──

@@ -28,6 +28,9 @@ class QueryResponse(BaseModel):
     model: str = ""
     analysis_result: dict | None = None
     analysis_queries: list[str] = []
+    explain_warnings: list[str] = []
+    explain_cost: float | None = None
+    pending_execution: bool = False
 
 
 # ── Data source models ──

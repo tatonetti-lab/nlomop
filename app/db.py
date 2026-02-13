@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 _pool: AsyncConnectionPool | None = None
 _active_schema: str = settings.db.schema_
 _tunnel: Any = None  # SSHTunnelForwarder or None
+_running_query_pid: int | None = None  # PID of currently executing query (for cancel)
 
 
 def _create_tunnel(ssh_config: dict) -> Any:
@@ -134,18 +135,93 @@ def _get_pool() -> AsyncConnectionPool:
 
 async def execute_query(sql: str) -> list[dict[str, Any]]:
     """Execute a read-only SQL query with timeout. Returns list of row dicts."""
+    global _running_query_pid
     pool = _get_pool()
     timeout_s = settings.db.query_timeout_s
     schema = _active_schema
 
     async with pool.connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(f"SET statement_timeout TO '{timeout_s}s'")
-            await cur.execute("SET default_transaction_read_only TO on")
-            await cur.execute(f"SET search_path TO {schema}")
-            await cur.execute(sql)
+            # Track PID for cancel support
+            await cur.execute("SELECT pg_backend_pid()")
+            pid_row = await cur.fetchone()
+            _running_query_pid = pid_row["pg_backend_pid"] if pid_row else None
+            try:
+                await cur.execute(f"SET statement_timeout TO '{timeout_s}s'")
+                await cur.execute("SET default_transaction_read_only TO on")
+                await cur.execute(f"SET search_path TO {schema}")
+                await cur.execute(sql)
+                rows = await cur.fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                _running_query_pid = None
+
+
+async def cancel_query() -> bool:
+    """Cancel the currently running query via pg_cancel_backend(). Returns True if sent."""
+    pid = _running_query_pid
+    if pid is None:
+        return False
+    pool = _get_pool()
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute("SELECT pg_cancel_backend(%s)", (pid,))
+                row = await cur.fetchone()
+                return row["pg_cancel_backend"] if row else False
+    except Exception:
+        log.warning("Failed to cancel query (pid=%s)", pid, exc_info=True)
+        return False
+
+
+async def get_table_indexes(tables: list[str]) -> dict[str, list[str]]:
+    """Return {table_name: [indexdef, ...]} for the given tables.
+
+    Queries pg_indexes to find which indexes actually exist, so we can
+    avoid suggesting indexes the user already created.
+    """
+    if not tables:
+        return {}
+    pool = _get_pool()
+    schema = _active_schema
+    async with pool.connection() as conn:
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                "SELECT tablename, indexdef FROM pg_indexes "
+                "WHERE schemaname = %s AND tablename = ANY(%s)",
+                (schema, tables),
+            )
             rows = await cur.fetchall()
-            return [dict(r) for r in rows]
+            result: dict[str, list[str]] = {}
+            for row in rows:
+                result.setdefault(row["tablename"], []).append(row["indexdef"])
+            return result
+
+
+async def explain_query(sql: str) -> list[dict[str, Any]]:
+    """Run EXPLAIN (FORMAT JSON) on a query without executing it.
+
+    Returns the parsed JSON plan. Uses a short 5s timeout since EXPLAIN
+    only runs the planner (no actual execution).
+    """
+    pool = _get_pool()
+    schema = _active_schema
+
+    async with pool.connection() as conn:
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute("SET statement_timeout TO '5s'")
+            await cur.execute(f"SET search_path TO {schema}")
+            await cur.execute(f"EXPLAIN (FORMAT JSON) {sql}")
+            rows = await cur.fetchall()
+            # EXPLAIN FORMAT JSON returns a single row with a single column
+            if rows:
+                plan_col = list(rows[0].values())[0]
+                # psycopg may return it already parsed or as a string
+                if isinstance(plan_col, str):
+                    import json
+                    return json.loads(plan_col)
+                return plan_col
+            return []
 
 
 async def fetch_concept_catalog() -> list[dict[str, Any]]:

@@ -6,6 +6,8 @@ from typing import Any
 
 from app import db, llm
 from app.analysis import run_analysis
+from app.config import settings
+from app.explain import analyze_plan
 from app.models import ConceptUsed, QueryResponse
 from app.prompts import build_system_prompt
 
@@ -139,6 +141,12 @@ def _parse_llm_json(text: str) -> _ParseResult:
 
 
 async def answer(question: str) -> QueryResponse:
+    """Process a question through LLM + EXPLAIN pre-flight.
+
+    For analysis requests: executes immediately, returns complete result.
+    For SQL requests: returns preflight result with pending_execution=True
+    (the caller must use execute() to actually run the SQL).
+    """
     t0 = time.monotonic()
     model = llm.get_deployment()
     system_prompt = build_system_prompt()
@@ -228,7 +236,7 @@ async def answer(question: str) -> QueryResponse:
         if isinstance(c, dict) and "id" in c and "name" in c:
             concepts_used.append(ConceptUsed(id=c["id"], name=c["name"]))
 
-    # Handle analysis requests
+    # Handle analysis requests — execute immediately (no preflight needed)
     if "analysis" in parsed:
         analysis_spec = parsed["analysis"]
         try:
@@ -263,7 +271,7 @@ async def answer(question: str) -> QueryResponse:
                 for c in concepts_raw:
                     if isinstance(c, dict) and "id" in c and "name" in c:
                         concepts_used.append(ConceptUsed(id=c["id"], name=c["name"]))
-                # Fall through to SQL execution below
+                # Fall through to SQL preflight below
             except Exception as e2:
                 log.exception("SQL fallback after analysis failure also failed")
                 return QueryResponse(
@@ -301,42 +309,93 @@ async def answer(question: str) -> QueryResponse:
             model=model,
         )
 
-    # Execute query
+    # EXPLAIN pre-flight analysis with smart index checking
+    explain_warnings: list[str] = []
+    explain_cost: float | None = None
     try:
-        rows = await db.execute_query(sql)
-    except Exception as e:
-        err_str = str(e)
-        if "canceling statement due to statement timeout" in err_str:
-            err_str = "Query timed out (exceeded 30s). Try a more specific question."
-        elif "cannot execute" in err_str and "read-only" in err_str:
-            err_str = "Query blocked: only read-only SELECT queries are allowed."
-        return QueryResponse(
-            question=question,
-            thinking=thinking,
-            sql=sql,
-            explanation=explanation,
-            concepts_used=concepts_used,
-            error=f"Query error: {err_str}",
-            elapsed_s=time.monotonic() - t0,
-            model=model,
-        )
+        plan_json = await db.explain_query(sql)
 
-    # Format results
-    columns = list(rows[0].keys()) if rows else []
-    row_values = [_serialize_row(r, columns) for r in rows]
+        # Collect tables that have seq scans so we can check indexes
+        from app.explain import _walk_plan, INDEX_SUGGESTIONS
+        seq_scans: list[dict[str, Any]] = []
+        top_plan = plan_json[0].get("Plan", {}) if plan_json else {}
+        _walk_plan(top_plan, seq_scans)
+        scan_tables = list({s["table"] for s in seq_scans})
 
+        # Check which indexes actually exist
+        existing_indexes: dict[str, list[str]] = {}
+        if scan_tables:
+            try:
+                existing_indexes = await db.get_table_indexes(scan_tables)
+            except Exception:
+                log.debug("Failed to check indexes (non-blocking)", exc_info=True)
+
+        result = analyze_plan(plan_json, existing_indexes=existing_indexes)
+        explain_warnings = result["warnings"]
+        if result["index_suggestions"]:
+            explain_warnings.append(
+                "Suggested indexes: " + " ".join(result["index_suggestions"])
+            )
+        explain_cost = result["estimated_cost"] or None
+    except Exception:
+        log.debug("EXPLAIN pre-flight failed (non-blocking)", exc_info=True)
+
+    # Return preflight result — SQL is ready but not executed yet
     return QueryResponse(
         question=question,
         thinking=thinking,
         sql=sql,
         explanation=explanation,
-        columns=columns,
-        rows=row_values,
-        row_count=len(rows),
         concepts_used=concepts_used,
         elapsed_s=round(time.monotonic() - t0, 2),
         model=model,
+        explain_warnings=explain_warnings,
+        explain_cost=explain_cost,
+        pending_execution=True,
     )
+
+
+async def execute(sql: str) -> dict[str, Any]:
+    """Execute validated SQL and return a result dict.
+
+    Used by the /api/query/execute endpoint after the preflight phase.
+    """
+    err = _validate_sql(sql)
+    if err:
+        return {"columns": [], "rows": [], "row_count": 0, "error": f"Blocked: {err}", "elapsed_s": 0}
+
+    t0 = time.monotonic()
+    try:
+        rows = await db.execute_query(sql)
+    except Exception as e:
+        err_str = str(e)
+        timeout_s = settings.db.query_timeout_s
+        if "canceling statement due to statement timeout" in err_str:
+            err_str = (
+                f"Query timed out (exceeded {timeout_s}s). "
+                f"You can increase the timeout in Settings, or try a more specific question."
+            )
+        elif "canceling statement due to user request" in err_str:
+            err_str = "Query cancelled."
+        elif "cannot execute" in err_str and "read-only" in err_str:
+            err_str = "Query blocked: only read-only SELECT queries are allowed."
+        return {
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "error": err_str,
+            "elapsed_s": round(time.monotonic() - t0, 2),
+        }
+
+    columns = list(rows[0].keys()) if rows else []
+    row_values = [_serialize_row(r, columns) for r in rows]
+    return {
+        "columns": columns,
+        "rows": row_values,
+        "row_count": len(rows),
+        "error": "",
+        "elapsed_s": round(time.monotonic() - t0, 2),
+    }
 
 
 def _serialize_row(row: dict[str, Any], columns: list[str]) -> list:

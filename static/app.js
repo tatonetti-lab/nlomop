@@ -33,6 +33,9 @@ const dsFormTest = document.getElementById("ds-form-test");
 const dsFormTestResult = document.getElementById("ds-form-test-result");
 const dsFormCancel = document.getElementById("ds-form-cancel");
 const dsFormSave = document.getElementById("ds-form-save");
+// Timeout controls
+const timeoutSlider = document.getElementById("timeout-slider");
+const timeoutInput = document.getElementById("timeout-input");
 // SSH fields (may be null if HTML is cached without them)
 const dsFormUseSsh = document.getElementById("ds-form-use-ssh");
 const dsFormSshFields = document.getElementById("ds-ssh-fields");
@@ -176,6 +179,11 @@ async function loadSettings() {
       opt.textContent = data.current_model + " (current)";
       opt.selected = true;
       modelSelect.prepend(opt);
+    }
+    // Populate timeout
+    if (data.query_timeout_s != null && timeoutSlider && timeoutInput) {
+      timeoutSlider.value = data.query_timeout_s;
+      timeoutInput.value = data.query_timeout_s;
     }
   } catch (err) {
     // ignore
@@ -416,6 +424,35 @@ if (dsFormUseSsh) {
   });
 }
 
+// ── Timeout slider ──
+if (timeoutSlider && timeoutInput) {
+  timeoutSlider.addEventListener("input", () => {
+    timeoutInput.value = timeoutSlider.value;
+  });
+  timeoutInput.addEventListener("input", () => {
+    const v = Math.max(10, Math.min(300, parseInt(timeoutInput.value) || 30));
+    timeoutSlider.value = v;
+  });
+  timeoutSlider.addEventListener("change", saveTimeout);
+  timeoutInput.addEventListener("blur", saveTimeout);
+  timeoutInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveTimeout(); }
+  });
+}
+
+async function saveTimeout() {
+  const val = parseInt(timeoutSlider.value) || 30;
+  try {
+    await fetch("/api/settings/timeout", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ timeout_s: val }),
+    });
+  } catch (err) {
+    // ignore
+  }
+}
+
 async function activateDataSource(id) {
   // Disable all activate buttons and show progress
   const activateBtn = dsList.querySelector('[data-action="activate"][data-id="' + id + '"]');
@@ -515,7 +552,9 @@ document.querySelectorAll(".sample-q").forEach((btn) => {
   });
 });
 
-// ── Chat: submit question ──
+// ── Chat: submit question (two-phase: preflight then execute) ──
+let _activeCancel = null; // AbortController for in-flight execute request
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = questionEl.value.trim();
@@ -536,7 +575,14 @@ form.addEventListener("submit", async (e) => {
     });
     const data = await resp.json();
     loadingEl.remove();
-    renderResult(data);
+
+    if (data.pending_execution) {
+      // Two-phase: show preflight, then execute
+      renderPreflight(data);
+    } else {
+      // Analysis or error — render directly
+      renderResult(data);
+    }
   } catch (err) {
     loadingEl.remove();
     addMessage("Network error: " + err.message, "assistant error");
@@ -557,6 +603,167 @@ function addMessage(text, cls) {
   messagesEl.appendChild(div);
   scrollToBottom();
   return div;
+}
+
+function renderPreflight(data) {
+  const div = document.createElement("div");
+  div.className = "msg assistant";
+
+  let html = "";
+
+  if (data.explanation) {
+    html += '<div class="explanation">' + escapeHtml(data.explanation) + "</div>";
+  }
+
+  // SQL in collapsible
+  if (data.sql) {
+    html += "<details><summary>SQL query";
+    html += ' <button class="copy-sql-btn" data-sql="' + escapeAttr(data.sql) + '">Run in IDE</button>';
+    html += "</summary><pre>" + escapeHtml(data.sql) + "</pre></details>";
+  }
+
+  // EXPLAIN warnings
+  if (data.explain_warnings && data.explain_warnings.length > 0) {
+    html += '<div class="explain-warnings">';
+    html += '<div class="explain-warnings-title">Performance warnings</div>';
+    for (const w of data.explain_warnings) {
+      html += '<div class="explain-warning-item">' + escapeHtml(w) + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Meta (model, preflight time, cost)
+  const metaParts = [];
+  if (data.model) metaParts.push(escapeHtml(data.model));
+  if (data.elapsed_s) metaParts.push(data.elapsed_s + "s");
+  if (data.explain_cost != null) metaParts.push("est. cost " + Math.round(data.explain_cost).toLocaleString());
+  if (data.concepts_used && data.concepts_used.length > 0) {
+    const ctext = data.concepts_used.map((c) => c.name + " (" + c.id + ")").join(", ");
+    metaParts.push('<span class="concepts">Concepts: ' + escapeHtml(ctext) + "</span>");
+  }
+  if (metaParts.length) {
+    html += '<div class="meta">' + metaParts.join(" &middot; ") + "</div>";
+  }
+
+  // Action area: buttons or auto-execute status
+  html += '<div class="preflight-actions"></div>';
+
+  div.innerHTML = html;
+
+  // Wire up "Run in IDE" button
+  const copyBtn = div.querySelector(".copy-sql-btn");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sqlEditor.value = copyBtn.dataset.sql;
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      document.querySelector('[data-tab="sql-view"]').classList.add("active");
+      document.getElementById("sql-view").classList.add("active");
+      sqlEditor.focus();
+    });
+  }
+
+  messagesEl.appendChild(div);
+  scrollToBottom();
+
+  const actionsEl = div.querySelector(".preflight-actions");
+
+  // Always auto-execute — warnings are informational, cancel button is available
+  executeQueryPhase(data.sql, div, actionsEl);
+}
+
+async function executeQueryPhase(sql, containerDiv, actionsEl) {
+  // Show running state with cancel button
+  actionsEl.innerHTML = "";
+  const runningSpan = document.createElement("span");
+  runningSpan.className = "preflight-running";
+  runningSpan.textContent = "Running query";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "preflight-btn preflight-btn-cancel";
+  cancelBtn.textContent = "Cancel";
+  actionsEl.appendChild(runningSpan);
+  actionsEl.appendChild(cancelBtn);
+  scrollToBottom();
+
+  const abortCtrl = new AbortController();
+  _activeCancel = abortCtrl;
+
+  let cancelled = false;
+  cancelBtn.addEventListener("click", async () => {
+    cancelled = true;
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = "Cancelling...";
+    try {
+      await fetch("/api/query/cancel", { method: "POST" });
+    } catch (_) {}
+  });
+
+  try {
+    const resp = await fetch("/api/query/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: sql }),
+      signal: abortCtrl.signal,
+    });
+    const result = await resp.json();
+    actionsEl.innerHTML = "";
+
+    // Handle HTTP errors (e.g. 422 validation, 500 server error)
+    if (!resp.ok) {
+      const errDiv = document.createElement("div");
+      errDiv.className = "explanation";
+      errDiv.style.color = "var(--error-text)";
+      errDiv.textContent = result.detail || result.error || ("Server error: " + resp.status);
+      containerDiv.insertBefore(errDiv, actionsEl);
+    } else if (result.error) {
+      const errDiv = document.createElement("div");
+      errDiv.className = "explanation";
+      errDiv.style.color = "var(--error-text)";
+      errDiv.textContent = result.error;
+      containerDiv.insertBefore(errDiv, actionsEl);
+    } else if (result.rows && result.rows.length > 0) {
+      const tableDiv = document.createElement("div");
+      if (result.columns.length === 1 && result.rows.length === 1) {
+        tableDiv.innerHTML =
+          '<div class="explanation"><strong>' +
+          escapeHtml(result.columns[0]) + ": " +
+          escapeHtml(String(result.rows[0][0])) +
+          "</strong></div>";
+      } else {
+        tableDiv.innerHTML = buildTable(result.columns, result.rows);
+      }
+      containerDiv.insertBefore(tableDiv, actionsEl);
+    } else {
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "explanation";
+      emptyDiv.style.color = "var(--text-muted)";
+      emptyDiv.textContent = "Query returned 0 rows.";
+      containerDiv.insertBefore(emptyDiv, actionsEl);
+    }
+
+    // Update meta with execution time and row count
+    const metaEl = containerDiv.querySelector(".meta");
+    if (metaEl && resp.ok && result.elapsed_s) {
+      const parts = [];
+      if (result.elapsed_s) parts.push("query " + result.elapsed_s + "s");
+      if (result.row_count > 0) parts.push(result.row_count + " row" + (result.row_count > 1 ? "s" : ""));
+      if (parts.length) {
+        metaEl.innerHTML += " &middot; " + parts.join(" &middot; ");
+      }
+    }
+  } catch (err) {
+    actionsEl.innerHTML = "";
+    if (err.name === "AbortError" || cancelled) {
+      actionsEl.innerHTML = '<span class="preflight-cancelled">Query cancelled.</span>';
+    } else {
+      actionsEl.innerHTML = '<span class="preflight-cancelled">Network error: ' + escapeHtml(err.message) + '</span>';
+    }
+  } finally {
+    _activeCancel = null;
+    scrollToBottom();
+  }
 }
 
 function renderResult(data) {
